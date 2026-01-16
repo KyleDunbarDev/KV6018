@@ -78,13 +78,20 @@ class Individual:
                 if i == j : break
                 distance = math.sqrt((positions[i].x - positions[j].x)**2 + (positions[i].y - positions[j].y)**2)
                 overlap = max(0, (radii[i]+radii[j]) - distance)
-                penalty_overlap += overlap**2 # Squared to penalty is proportional to overlap
+                penalty_overlap += overlap**2 # Squared so penalty is proportional to overlap
 
         ## Check for boundary escape
         penalty_bounds = 0
+        for i, cyl in enumerate(self.cylinders):
+            upper = max(0, radii[i]+ positions[i].y - container.depth)
+            lower = max(0, radii[i] - positions[i].y)
+            left = max(0, radii[i] - positions[i].x)
+            right = max(0, radii[i] + positions[i].x - container.width)
+            penalty_bounds += upper+lower+left+right
 
-        ## Check if max weight exceeds capacity
+        ## Check if max weight exceeds capacity. Should always be 0
         penalty_capacity = 0
+        penalty_capacity += max(0, sum(self.weights) - container.max_weight)
 
         ## Check if centre of mass is within 60%
         penalty_CM = 0
