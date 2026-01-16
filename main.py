@@ -1,6 +1,7 @@
 from container_instances import Cylinder, Container
 import random
 import math
+from typing import List
 
 class Vector2:
     def __init__(self, x: float, y: float):
@@ -9,7 +10,7 @@ class Vector2:
 
 class Individual:
     """
-    Initialise an individual from a list of cylinders which gets shuffled
+    Initialise an individual from a list of cylinders
 
     Args:
         cylinders: A list of Cylinders with diameter and weight
@@ -20,11 +21,6 @@ class Individual:
         self.ids = [cylinder['id'] for cylinder in cylinders]
         self.diameters = [cylinder['diameter'] for cylinder in cylinders]
         self.weights = [cylinder['weight'] for cylinder in cylinders]
-
-        shuffled_ids = self.ids.copy()
-        random.shuffle(shuffled_ids)
-        self.genes = shuffled_ids
-
         self.fitness = 0
 
     def calculate_fitness(self, container: Container) -> float:
@@ -95,6 +91,10 @@ class Individual:
 
         ## Check if centre of mass is within 60%
         penalty_CM = 0
+
+        sum(self.weights)
+        for i, cyl in enumerate(self.cylinders):
+
 
 
 
