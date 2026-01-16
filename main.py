@@ -2,6 +2,7 @@ from container_instances import Cylinder, Container
 import random
 import math
 from typing import List
+import numpy as np
 
 class Vector2:
     def __init__(self, x: float, y: float):
@@ -13,7 +14,7 @@ class Individual:
     Initialise an individual from a list of cylinders
 
     Args:
-        cylinders: A list of Cylinders with diameter and weight
+        cylinders: A list of Cylinders with id, diameter and weight
     """
     def __init__(self, cylinders):
         self.cylinders = cylinders
@@ -65,7 +66,6 @@ class Individual:
                 next_y = positions[i].y + prev_r + next_r
                 positions.append(Vector2(next_x, next_y))
 
-
         # Fitness
         ## Check for overlap
         penalty_overlap = 0
@@ -92,13 +92,28 @@ class Individual:
         ## Check if centre of mass is within 60%
         penalty_CM = 0
 
-        sum(self.weights)
+        cm_x = 0
+        cm_y = 0
+        # Calculaye CM along axes
+        total_weight = sum(self.weights)
+        weighted_x = 0
+        weighted_y = 0
         for i, cyl in enumerate(self.cylinders):
+            weighted_x += self.weights[i] * positions[i].x
+            weighted_y += self.weights[i] * positions[i].y
+
+        if total_weight != 0:
+            cm_x = weighted_x / total_weight
+            cm_y = weighted_y / total_weight
+
+        # Penalise if CM < 0.2 or CM > 0.8 on each axis
+        penalty_CM += max(0, 0.2 * container.width - cm_x)
+        penalty_CM += max(0, cm_x - 0.8 * container.width)
+        penalty_CM += max(0, 0.2 * container.depth - cm_y)
+        penalty_CM += max(0, cm_y - 0.8 * container.depth)
 
 
-
-
-        return 0.0
+        return 0-(penalty_overlap + penalty_bounds + penalty_capacity + penalty_CM)
 
     def mutate(self, mutation_rate: float, max_attempts: int):
         """
@@ -109,10 +124,88 @@ class Individual:
         """
 
     def __str__(self):
-        return f"Genes: {self.genes}, Fitness: {self.fitness}"
+        return f"Genes (id): {self.ids}, Fitness: {self.fitness}"
 
+class Population:
+    def __init__(self, pop_size, cylinders):
+        """
+        Initialise population of cylinder sequences with given size
+
+        Args:
+            pop_size: int of how many individuals to create
+            cylinders: list of cylinders with id, diameter, and weight
+        """
+        self.pop_size = pop_size
+        self.cylinders = cylinders
+
+        gene = self.cylinders.copy() # Copy to shuffle (shuffle shuffles in place)
+        self.individuals = [Individual(random.shuffle(cylinders)) for _ in range(pop_size)]
+
+    def tournament_selection(self, tournament_size = 3):
+        """
+        Select an individual using tournament selection
+
+        Args:
+            tournament_size: Number of selected individuals to showdown in tournament
+
+        Returns:
+            Most fit individual
+        """
+
+        tournament = random.sample(self.individuals, tournament_size)
+        return max(tournament, key=lambda indiv: indiv.fitness)
+
+    def crossover(self, parent1, parent2):
+        """
+        Order Crossover OX1 to preserve order and ensure no duplication
+
+        Args:
+            parent1, parent2: Individual objects
+        Returns:
+            child_cylinders: List of cylinders in OX1 order
+        """
+        # Extract genome (list of cylinder IDs)
+        genome1 = parent1.ids
+        genome2 = parent2.ids
+        n = len(genome1)
+
+        # Choose two random cut points
+        cut1, cut2 = sorted(random.sample(range(n), 2))
+
+        # Initialise empty child
+        child_genome = [None] * n
+
+        # Copy segment from parent1 to child (keeping positions)
+        for i in range(cut1, cut2):
+            child_genome[i] = genome1[i]
+
+        # Fill remaining positions from parent2, maintaining order
+        # Start from cut2 in parent2 and wrap around
+        parent2_ptr = cut2 % n
+        for i in list(range(cut2, n)) + list(range(0, cut1)):
+            if child_genome[i] is None:
+                # Find next gene from parent2 not already in child
+                while genome2[parent2_ptr] in child_genome:
+                    parent2_ptr = (parent2_ptr + 1) % n
+                child_genome[i] = genome2[parent2_ptr]
+                parent2_ptr = (parent2_ptr + 1) % n
+
+        # Reconstruct cylinders from genome
+        cylinders_by_id = {}
+        for cylinder in parent1.cylinders:
+            cylinders_by_id[cylinder['id']] = cylinder
+
+        # Build child cylinders in the crossed over sequence
+        child_cylinders = []
+        for cylinder_id in child_genome:
+            child_cylinders.append(cylinders_by_id[cylinder_id])
+
+        return child_cylinders
 
 def main():
+    mutation_attempts = 10
+    mutation_rate = 0.02
+    population_size = 300
     pass
 
 if __name__ == "__main__":
