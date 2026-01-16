@@ -27,72 +27,82 @@ class Individual:
 
         self.fitness = 0
 
-def calculate_fitness(self, container: Container) -> float:
-    """
-    Calculate fitness as a numeric value in respect to a given container
+    def calculate_fitness(self, container: Container) -> float:
+        """
+        Calculate fitness as a numeric value in respect to a given container
 
-    Args:
-        container: A Container with width, depth and max_weight
-    Returns:
-        Fitness value (float)
-    """
-    # Placement
-    radii = [diameter/2 for diameter in self.diameters]
-    positions: list[Vector2] = []
-    ## Place first cylinder
-    positions.append(Vector2(0+radii[0], 0+radii[0]))
+        Args:
+            container: A Container with width, depth and max_weight
+        Returns:
+            Fitness value (float)
+        """
+        # Placement
+        radii = [diameter/2 for diameter in self.diameters]
+        positions: list[Vector2] = []
+        ## Place first cylinder
+        positions.append(Vector2(0+radii[0], 0+radii[0]))
 
-    ## Place subsequent cylinders
-    for i, cyl in enumerate(self.cylinders[1:]):
-        # Get previous and next cylinders' radii. Find next x
-        prev_r = radii[i]
-        next_r = radii[i+1]
-        next_x = positions[i].x + prev_r + next_r # Candidate x using bottom-left heuristic
+        ## Place subsequent cylinders
+        for i, cyl in enumerate(self.cylinders[1:]):
+            # Get previous and next cylinders' radii. Find next x
+            prev_r = radii[i]
+            next_r = radii[i+1]
+            next_x = positions[i].x + prev_r + next_r # Candidate x using bottom-left heuristic. COULD: Candidate x positions beginning from left wall in case of gaps. Not attractive because of weight balancing constraint
 
-        # Check if fits in row
-        if next_x + next_r <= container.width:
-            # Calculate y and check validate for protrusion of previous cylinders
-            next_y = next_r
-            ## Get cylinders in the column of radius
-            for j, pos in enumerate(positions):
-                rad_j = radii[j]
-                dx = abs(next_x - pos.x)
+            # Check if fits in row
+            if next_x + next_r <= container.width:
+                # Find min y
+                next_y = next_r
+                ## Get cylinders in the column of radius
+                for j, pos in enumerate(positions):
+                    rad_j = radii[j]
+                    dx = abs(next_x - pos.x)
 
-                # Only cylinders whose x-range overlaps can block placement
-                if dx < (next_r + rad_j):
-                    dy = math.sqrt((next_r + rad_j) ** 2 - dx ** 2)
-                    next_y = max(next_y, pos.y + dy)
-            positions.append(Vector2(next_x, next_y))
+                    if dx < (next_r + rad_j): # Only cylinders whose x-range overlaps can block placement
+                        dy = math.sqrt((next_r + rad_j) ** 2 - dx ** 2)
+                        # Get lowest y that is above all blocking cylinders
+                        next_y = max(next_y, pos.y + dy)
+                positions.append(Vector2(next_x, next_y))
 
-        else: # Go to next row
-            next_x = next_r
-            next_y = positions[i].y + prev_r + next_r
-            positions.append(Vector2(next_x, next_y))
-
-
-    # Fitness
-    ## Check for overlap
-
-    ## Check for boundary escape
-
-    ## Check if max weight exceeds capacity
-
-    ## Check if centre of mass is within 60%
+            else: # Go to next row
+                next_x = next_r
+                next_y = positions[i].y + prev_r + next_r
+                positions.append(Vector2(next_x, next_y))
 
 
+        # Fitness
+        ## Check for overlap
+        penalty_overlap = 0
+        for i, cyl_i in enumerate(self.cylinders):
+            for j, cyl_j  in enumerate(self.cylinders):
+                if i == j : break
+                distance = math.sqrt((positions[i].x - positions[j].x)**2 + (positions[i].y - positions[j].y)**2)
+                overlap = max(0, (radii[i]+radii[j]) - distance)
+                penalty_overlap += overlap**2 # Squared to penalty is proportional to overlap
 
-    return 0.0
+        ## Check for boundary escape
+        penalty_bounds = 0
 
-def mutate(self, mutation_rate: float, max_attempts: int):
-    """
-    Local search mutation function.
-    Iterates through random swaps and evaluates fitness
-        - If fitness is higher, the gene is replaced.
-        - Else runs until max_attempts.
-    """
+        ## Check if max weight exceeds capacity
+        penalty_capacity = 0
 
-def __str__(self):
-    return f"Genes: {self.genes}, Fitness: {self.fitness}"
+        ## Check if centre of mass is within 60%
+        penalty_CM = 0
+
+
+
+        return 0.0
+
+    def mutate(self, mutation_rate: float, max_attempts: int):
+        """
+        Local search mutation function.
+        Iterates through random swaps and evaluates fitness
+            - If fitness is higher, the gene is replaced.
+            - Else runs until max_attempts.
+        """
+
+    def __str__(self):
+        return f"Genes: {self.genes}, Fitness: {self.fitness}"
 
 
 def main():
