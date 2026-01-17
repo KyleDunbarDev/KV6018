@@ -2,8 +2,9 @@ import container_instances
 from container_instances import Cylinder, Container, Instance
 import random
 import math
-from typing import List
+from typing import List, Dict
 import numpy as np
+import json
 
 class Vector2:
     def __init__(self, x: float, y: float):
@@ -17,12 +18,11 @@ class Individual:
     Args:
         cylinders: A list of Cylinders with id, diameter and weight
     """
-    def __init__(self, cylinders):
+    def __init__(self, cylinders: List[Cylinder]):
         self.cylinders = cylinders
-        self.num_genes = len(cylinders)
-        self.ids = [cylinder['id'] for cylinder in cylinders]
-        self.diameters = [cylinder['diameter'] for cylinder in cylinders]
-        self.weights = [cylinder['weight'] for cylinder in cylinders]
+        self.ids = [cylinder.id for cylinder in cylinders]
+        self.diameters = [cylinder.diameter for cylinder in cylinders]
+        self.weights = [cylinder.weight for cylinder in cylinders]
         self.fitness = 0
 
     def calculate_fitness(self, container: Container) -> float:
@@ -133,7 +133,7 @@ class Individual:
         return f"Genes (id): {self.ids}, Fitness: {self.fitness}"
 
 class Population:
-    def __init__(self, pop_size, cylinders):
+    def __init__(self, pop_size, cylinders: List[Cylinder], container: Container):
         """
         Initialise population of cylinder sequences with given size
 
@@ -143,9 +143,15 @@ class Population:
         """
         self.pop_size = pop_size
         self.cylinders = cylinders
+        self.container = container
 
         gene = self.cylinders.copy() # Copy to shuffle (shuffle shuffles in place)
-        self.individuals = [Individual(random.shuffle(cylinders)) for _ in range(pop_size)]
+
+        self.individuals = []
+        for _ in range(pop_size):
+            gene = self.cylinders.copy()
+            random.shuffle(gene)
+            self.individuals.append(Individual(gene))
 
     def tournament_selection(self, tournament_size = 3) -> Individual:
         """
@@ -199,7 +205,7 @@ class Population:
         # Reconstruct cylinders from genome
         cylinders_by_id = {}
         for cylinder in parent1.cylinders:
-            cylinders_by_id[cylinder['id']] = cylinder
+            cylinders_by_id[cylinder.id] = cylinder
 
         # Build child cylinders in the crossed over sequence
         child_cylinders = []
@@ -208,12 +214,12 @@ class Population:
 
         return Individual(child_cylinders)
 
-    def evaluate_population(self, container):
+    def evaluate_population(self):
         """
         Calculates fitness for the current population
         """
         for individual in self.individuals:
-            individual.calculate_fitness(container)
+            individual.calculate_fitness(self.container)
 
     def get_best_individual(self):
         """
@@ -249,6 +255,7 @@ class Population:
             new_individuals.append(child)
 
         self.individuals = new_individuals
+        self.evaluate_population()
 
     def get_stats(self):
         """
@@ -265,13 +272,34 @@ class Population:
             'worst': min(fitnesses)
         }
 
+    def print_stats(self):
+        stats = self.get_stats()
+
+        out = f"""
+            Best: {stats['best']}\n
+            Average: {stats['average']}\n
+            Worst: {stats['worst']}\n
+            """
+
+        print(out)
+
 def main():
     memetic_mutation_attempts = 10
     mutation_rate = 0.01
     population_size = 200
+    max_generations = 500
 
     instance: Instance = container_instances.create_basic_instances()[0]
-    population = Population(100, instance.cylinders)
+    population = Population(100, instance.cylinders, instance.container)
+
+    population.evaluate_population()
+
+    for gen in range(max_generations):
+        population.evolve(mutation_rate)
+
+        if gen % 20 == 0:
+            print(f"------Generation {gen}------")
+            population.print_stats()
 
 if __name__ == "__main__":
     main()
