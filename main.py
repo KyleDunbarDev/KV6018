@@ -7,6 +7,7 @@ import numpy as np
 import json
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from matplotlib.patches import Circle as PltCircle
 
 class Vector2:
     def __init__(self, x: float, y: float):
@@ -172,6 +173,137 @@ class Individual:
     def __str__(self):
         return f"Genes (id): {self.ids}, Fitness: {self.fitness}"
 
+
+    def draw(self, container, title="Cylinder Placement"):
+        """
+        Visualise the container and cylinder placements to show fitness.
+        """
+        # --- Recompute placement (same as fitness) ---
+        radii = [d / 2 for d in self.diameters]
+        positions = []
+
+        positions.append(Vector2(radii[0], radii[0]))
+
+        for i in range(1, len(self.cylinders)):
+            prev_r = radii[i - 1]
+            next_r = radii[i]
+
+            next_x = positions[i - 1].x + prev_r + next_r
+
+            if next_x + next_r <= container.width:
+                next_y = next_r
+                for j, pos in enumerate(positions):
+                    rad_j = radii[j]
+                    dx = abs(next_x - pos.x)
+                    if dx < (next_r + rad_j):
+                        dy = math.sqrt((next_r + rad_j) ** 2 - dx ** 2)
+                        next_y = max(next_y, pos.y + dy)
+            else:
+                next_x = next_r
+                next_y = positions[i - 1].y + prev_r + next_r
+
+            positions.append(Vector2(next_x, next_y))
+
+        # --- Plot setup ---
+        fig, ax = plt.subplots(figsize=(10, 10))
+
+        # Container rectangle
+        container_patch = patches.Rectangle(
+            (0, 0),
+            container.width,
+            container.depth,
+            fill=False,
+            edgecolor='#F4BA02',
+            linewidth=2,
+            linestyle='--',
+            label='Container'
+        )
+        ax.add_patch(container_patch)
+
+        # --- Draw cylinders ---
+        for i, pos in enumerate(positions):
+            circle = PltCircle(
+                (pos.x, pos.y),
+                radii[i],
+                fill=False,
+                edgecolor='#99D9DD',
+                linewidth=2
+            )
+            ax.add_patch(circle)
+
+            # Center point
+            ax.plot(pos.x, pos.y, 'o', color='#99D9DD', markersize=5)
+
+            # ID label
+            ax.text(
+                pos.x, pos.y,
+                f'{self.ids[i]}',
+                ha='center',
+                va='center',
+                fontsize=9,
+                color='#F7F8F9'
+            )
+
+        # --- Centre of Mass ---
+        total_weight = sum(self.weights)
+        if total_weight > 0:
+            cm_x = sum(self.weights[i] * positions[i].x for i in range(len(self.weights))) / total_weight
+            cm_y = sum(self.weights[i] * positions[i].y for i in range(len(self.weights))) / total_weight
+
+            ax.plot(cm_x, cm_y, 'x',
+                    color='#F4BA02',
+                    markersize=12,
+                    markeredgewidth=3,
+                    label='Centre of Mass')
+
+            # CM safe zone
+            ax.add_patch(
+                patches.Rectangle(
+                    (0.2 * container.width, 0.2 * container.depth),
+                    0.6 * container.width,
+                    0.6 * container.depth,
+                    fill=False,
+                    edgecolor='#F4BA02',
+                    linestyle=':',
+                    linewidth=1.5,
+                    label='CM Safe Zone'
+                )
+            )
+
+        # --- Axes & styling ---
+        ax.set_aspect('equal')
+
+        margin_x = container.width * 0.15
+        margin_y = container.depth * 0.15
+        ax.set_xlim(-margin_x, container.width + margin_x)
+        ax.set_ylim(-margin_y, container.depth + margin_y)
+
+        ax.grid(True, alpha=0.3, color='#F7F8F9')
+        ax.set_facecolor('#01364C')
+        fig.patch.set_facecolor('#01364C')
+
+        ax.tick_params(colors='#F7F8F9')
+        for spine in ax.spines.values():
+            spine.set_color('#F7F8F9')
+
+        ax.set_title(
+            f"{title}\nFitness: {self.fitness:.2f}",
+            color='#F7F8F9',
+            fontsize=14,
+            pad=20,
+            weight='bold'
+        )
+
+        ax.legend(
+            loc='upper right',
+            facecolor='#01364C',
+            edgecolor='#F7F8F9',
+            labelcolor='#F7F8F9',
+            framealpha=0.9
+        )
+
+        plt.show()
+
 class Population:
     def __init__(self, pop_size, cylinders: List[Cylinder], container: Container):
         """
@@ -326,6 +458,9 @@ class Population:
 
         print(out)
 
+
+
+
 def main():
     memetic_mutation_attempts = 10
     mutation_rate = 0.01
@@ -345,6 +480,7 @@ def main():
             population.print_stats()
 
     best = population.get_best_individual()
-    best.draw()
+    best.draw(instance.container)
+
 if __name__ == "__main__":
     main()
