@@ -178,7 +178,7 @@ class Individual:
         """
         Visualise the container and cylinder placements to show fitness.
         """
-        # --- Recompute placement (same as fitness) ---
+        # Recompute placement (same as fitness)
         radii = [d / 2 for d in self.diameters]
         positions = []
 
@@ -204,7 +204,7 @@ class Individual:
 
             positions.append(Vector2(next_x, next_y))
 
-        # --- Plot setup ---
+        # Plot setup
         fig, ax = plt.subplots(figsize=(10, 10))
 
         # Container rectangle
@@ -213,20 +213,22 @@ class Individual:
             container.width,
             container.depth,
             fill=False,
-            edgecolor='#F4BA02',
+            edgecolor='black',
             linewidth=2,
             linestyle='--',
+            facecolor='none',
             label='Container'
         )
         ax.add_patch(container_patch)
 
-        # --- Draw cylinders ---
+        # Draw cylinders
         for i, pos in enumerate(positions):
             circle = PltCircle(
                 (pos.x, pos.y),
                 radii[i],
                 fill=False,
                 edgecolor='#99D9DD',
+                facecolor='none',
                 linewidth=2
             )
             ax.add_patch(circle)
@@ -244,7 +246,7 @@ class Individual:
                 color='#F7F8F9'
             )
 
-        # --- Centre of Mass ---
+        # Centre of Mass
         total_weight = sum(self.weights)
         if total_weight > 0:
             cm_x = sum(self.weights[i] * positions[i].x for i in range(len(self.weights))) / total_weight
@@ -263,14 +265,15 @@ class Individual:
                     0.6 * container.width,
                     0.6 * container.depth,
                     fill=False,
-                    edgecolor='#F4BA02',
+                    edgecolor='red',
                     linestyle=':',
-                    linewidth=1.5,
+                    linewidth=11.5,
+                    facecolor='none',
                     label='CM Safe Zone'
                 )
             )
 
-        # --- Axes & styling ---
+        # Axes & styling
         ax.set_aspect('equal')
 
         margin_x = container.width * 0.15
@@ -278,9 +281,9 @@ class Individual:
         ax.set_xlim(-margin_x, container.width + margin_x)
         ax.set_ylim(-margin_y, container.depth + margin_y)
 
-        ax.grid(True, alpha=0.3, color='#F7F8F9')
-        ax.set_facecolor('#01364C')
-        fig.patch.set_facecolor('#01364C')
+        ax.grid(True, alpha=0.3, color='black')
+        ax.set_facecolor('none')
+        fig.patch.set_facecolor('none')
 
         ax.tick_params(colors='#F7F8F9')
         for spine in ax.spines.values():
@@ -288,7 +291,7 @@ class Individual:
 
         ax.set_title(
             f"{title}\nFitness: {self.fitness:.2f}",
-            color='#F7F8F9',
+            color='black',
             fontsize=14,
             pad=20,
             weight='bold'
@@ -296,8 +299,8 @@ class Individual:
 
         ax.legend(
             loc='upper right',
-            facecolor='#01364C',
-            edgecolor='#F7F8F9',
+            facecolor='white',
+            edgecolor='black',
             labelcolor='#F7F8F9',
             framealpha=0.9
         )
