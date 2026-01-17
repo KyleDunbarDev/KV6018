@@ -88,9 +88,6 @@ class Individual:
                         candidate = Vector2(existing_pos.x + dx, existing_pos.y + dy)
                         candidate_positions.append(candidate)
 
-            # Shuffle candidates to avoid bias
-            random.shuffle(candidate_positions)
-
             # Try candidates in order
             for pos in candidate_positions:
                 if self.is_position_feasible(pos, radius, i, radii, container):
@@ -170,8 +167,6 @@ class Individual:
         penalty_CM = 0
         reward_CM = 0
 
-
-
         if total_weight > 0:
             cm_x = sum(self.weights[i] * self.positions[i].x for i in range(n)) / total_weight
             cm_y = sum(self.weights[i] * self.positions[i].y for i in range(n)) / total_weight
@@ -213,6 +208,94 @@ class Individual:
 
         self.fitness = -total_penalty + reward_CM
         return self.fitness
+
+    def _calculate_detailed_penalties(self, container: Container) -> dict:
+        """
+        Calculate and return detailed penalty breakdown.
+        """
+        if not self.positions:
+            self.calculate_fitness(container)
+
+        radii = [d/2 for d in self.diameters]
+        n = len(self.cylinders)
+
+        # Initialize penalties
+        penalty_overlap = 0
+        penalty_bounds = 0
+
+        # Boundary penalties
+        for i, pos in enumerate(self.positions):
+            radius = radii[i]
+            if pos.x - radius < 0:
+                penalty_bounds += (radius - pos.x)**2
+            if pos.x + radius > container.width:
+                penalty_bounds += (pos.x + radius - container.width)**2
+            if pos.y - radius < 0:
+                penalty_bounds += (radius - pos.y)**2
+            if pos.y + radius > container.depth:
+                penalty_bounds += (pos.y + radius - container.depth)**2
+
+        # Overlap penalties
+        for i in range(n):
+            for j in range(i + 1, n):
+                distance = math.sqrt(
+                    (self.positions[i].x - self.positions[j].x)**2 +
+                    (self.positions[i].y - self.positions[j].y)**2
+                )
+                min_distance = radii[i] + radii[j]
+                if distance < min_distance:
+                    overlap = min_distance - distance
+                    penalty_overlap += overlap**2
+
+        # Capacity penalty
+        total_weight = sum(self.weights)
+        penalty_capacity = max(0, total_weight - container.max_weight)**2
+
+        # Center of mass calculations
+        center_mass_penalty = 0
+        center_mass_reward = 0
+        center_mass = None
+
+        if total_weight > 0:
+            cm_x = sum(self.weights[i] * self.positions[i].x for i in range(n)) / total_weight
+            cm_y = sum(self.weights[i] * self.positions[i].y for i in range(n)) / total_weight
+            center_mass = (cm_x, cm_y)
+
+            # Penalty for being outside safe zone (20%-80%)
+            if cm_x < 0.2 * container.width:
+                center_mass_penalty += (0.2 * container.width - cm_x)**2
+            if cm_x > 0.8 * container.width:
+                center_mass_penalty += (cm_x - 0.8 * container.width)**2
+            if cm_y < 0.2 * container.depth:
+                center_mass_penalty += (0.2 * container.depth - cm_y)**2
+            if cm_y > 0.8 * container.depth:
+                center_mass_penalty += (cm_y - 0.8 * container.depth)**2
+
+            # Reward for being close to center
+            target_x = container.width / 2
+            target_y = container.depth / 2
+            distance_from_center = math.sqrt((cm_x - target_x)**2 + (cm_y - target_y)**2)
+            max_distance = math.sqrt((container.width/2)**2 + (container.depth/2)**2)
+            center_mass_reward = 100 * (1 - distance_from_center / max_distance)
+
+        # Total weighted penalties
+        total_penalty = (
+            penalty_overlap * 10.0 +
+            penalty_bounds * 5.0 +
+            penalty_capacity * 100.0 +
+            center_mass_penalty * 2.0
+        )
+
+        return {
+            'overlap': penalty_overlap * 10.0,
+            'boundary': penalty_bounds * 5.0,
+            'capacity': penalty_capacity * 100.0,
+            'center_mass_penalty': center_mass_penalty * 2.0,
+            'center_mass_reward': center_mass_reward,
+            'total_penalty': total_penalty,
+            'center_mass': center_mass,
+            'total_weight': total_weight
+        }
 
     def mutate(self, mutation_rate: float):
         if random.random() < mutation_rate:
@@ -532,7 +615,7 @@ def run_single_instance(instance, mutation_rate=0.01, memetic_attempts=10, popul
         'instance': instance
     }
 
-def run_all_instances(mutation_rate=0.01, memetic_attempts=10, population_size=200, max_generations=500, verbose=True):
+def run_all_instances(mutation_rate=0.01, memetic_attempts=10, population_size=200, max_generations=500, print_interval=50, verbose=True):
     """
     Run the GA on all available instances and analyse results.
 
@@ -582,7 +665,7 @@ def run_all_instances(mutation_rate=0.01, memetic_attempts=10, population_size=2
         for gen in range(max_generations):
             population.evolve(mutation_rate, memetic_attempts)
 
-            if verbose and gen % 100 == 0:
+            if verbose and gen % print_interval == 0:
                 stats = population.get_stats()
                 print(f"Generation {gen:4d}: Best={stats['best']:8.2f}, "
                       f"Avg={stats['average']:8.2f}, Worst={stats['worst']:8.2f}")
@@ -677,6 +760,88 @@ def run_all_instances(mutation_rate=0.01, memetic_attempts=10, population_size=2
         'success_rate': len(successful) / len(results) if results else 0
     }
 
+def evaluate_and_visualize_sequence(instance, id_sequence, show_visualization=True):
+    """
+    Evaluate and visualize a specific sequence of cylinder IDs.
+
+    Args:
+        instance: The problem instance (from container_instances)
+        id_sequence: List of cylinder IDs in the order to place them
+        show_visualization: If True, show the visualization plot
+
+    Returns:
+        Dictionary with fitness, positions, and all penalty components
+    """
+    # Create a dictionary to map IDs to cylinders
+    cylinder_by_id = {cyl.id: cyl for cyl in instance.cylinders}
+
+    # Create cylinders in the specified sequence order
+    ordered_cylinders = []
+    for cyl_id in id_sequence:
+        if cyl_id in cylinder_by_id:
+            ordered_cylinders.append(cylinder_by_id[cyl_id])
+        else:
+            raise ValueError(f"Cylinder ID {cyl_id} not found in instance")
+
+    # Create an Individual with this sequence
+    individual = Individual(ordered_cylinders)
+
+    # Calculate fitness
+    fitness = individual.calculate_fitness(instance.container)
+
+    # Calculate detailed penalty breakdown
+    penalty_breakdown = individual._calculate_detailed_penalties(instance.container)
+
+    # Print results
+    print("=" * 70)
+    print(f"SEQUENCE EVALUATION - {instance.name}")
+    print("=" * 70)
+    print(f"Sequence: {id_sequence}")
+    print(f"Total cylinders: {len(id_sequence)}")
+    print(f"Fitness: {fitness:.4f}")
+    print("\nPenalty Breakdown:")
+    print(f"  Overlap penalty:      {penalty_breakdown['overlap']:.4f}")
+    print(f"  Boundary penalty:     {penalty_breakdown['boundary']:.4f}")
+    print(f"  Capacity penalty:     {penalty_breakdown['capacity']:.4f}")
+    print(f"  Center of Mass penalty: {penalty_breakdown['center_mass_penalty']:.4f}")
+    print(f"  Center of Mass reward:  {penalty_breakdown['center_mass_reward']:.4f}")
+    print(f"  Total penalty:        {penalty_breakdown['total_penalty']:.4f}")
+
+    # Print placement information
+    print("\nPlacement Details:")
+    print(f"{'ID':<4} {'Diameter':<8} {'Weight':<8} {'X':<8} {'Y':<8}")
+    print("-" * 40)
+    for i, cyl in enumerate(individual.cylinders):
+        if i < len(individual.positions):
+            pos = individual.positions[i]
+            print(f"{cyl.id:<4} {cyl.diameter:<8.2f} {cyl.weight:<8.2f} {pos.x:<8.2f} {pos.y:<8.2f}")
+        else:
+            print(f"{cyl.id:<4} {cyl.diameter:<8.2f} {cyl.weight:<8.2f} {'N/A':<8} {'N/A':<8}")
+
+    # Show center of mass information
+    if penalty_breakdown['center_mass'] is not None:
+        cm_x, cm_y = penalty_breakdown['center_mass']
+        print(f"\nCenter of Mass: ({cm_x:.2f}, {cm_y:.2f})")
+        print(f"Container Center: ({instance.container.width/2:.2f}, {instance.container.depth/2:.2f})")
+        print(f"Distance from center: {math.sqrt((cm_x - instance.container.width/2)**2 + (cm_y - instance.container.depth/2)**2):.2f}")
+
+    # Total weight check
+    total_weight = sum(cyl.weight for cyl in individual.cylinders)
+    print(f"\nTotal weight: {total_weight:.2f} / {instance.container.max_weight:.2f}")
+    print(f"Weight utilization: {(total_weight/instance.container.max_weight*100):.1f}%")
+
+    # Show visualization
+    if show_visualization:
+        individual.draw(instance.container,
+                        title=f"Sequence: {id_sequence[:5]}{'...' if len(id_sequence) > 5 else ''}")
+
+    return {
+        'fitness': fitness,
+        'positions': individual.positions.copy() if individual.positions else [],
+        'penalty_breakdown': penalty_breakdown,
+        'individual': individual
+    }
+
 def main():
     memetic_mutation_attempts = 10
     mutation_rate = 0.01
@@ -687,33 +852,43 @@ def main():
     # You can choose to run a single instance with visualation or all instances with a report & visualisations
     # by commenting and uncommenting the respective options
 
-    # Option 1: Run single given instance
+
+
+    #! Option 1: Run single given instance
     ## Choose instance
-    instance: Instance = container_instances.create_basic_instances()[0]
-    # instance: Instance = container_instances.create_challenging_instances()[0]
-
-    result = run_single_instance(
-            instance=instance,
-            mutation_rate=mutation_rate,
-            memetic_attempts=memetic_mutation_attempts,
-            population_size=population_size,
-            max_generations=max_generations,
-            print_interval=20,
-            draw_result=True
-        )
-
-    print(f"\nFinal fitness: {result['final_stats']['best']:.4f}")
+    # instance: Instance = container_instances.create_basic_instances()[0]
+    # # instance: Instance = container_instances.create_challenging_instances()[0]
+    #
+    # result = run_single_instance(instance=instance, mutation_rate=mutation_rate, memetic_attempts=memetic_mutation_attempts, population_size=population_size, max_generations=max_generations, print_interval=20, draw_result=True)
+    # print(f"\nFinal fitness: {result['final_stats']['best']:.4f}")
+    # print(f"Best sequence (cylinder IDs): {result['best_individual'].ids}")
+    # print(f"Best sequence (full details):")
+    # for i, cyl in enumerate(result['best_individual'].cylinders):
+    #     print(f"  Position {i+1}: ID={cyl.id}, Diameter={cyl.diameter}, Weight={cyl.weight}")
 
 
-    # Option 2: Run all instances
-    # results = run_all_instances(
-    #     mutation_rate=mutation_rate,
-    #     memetic_attempts=memetic_mutation_attempts,
-    #     population_size=population_size,
-    #     max_generations=max_generations,
-    #     verbose=True
-    # )
+
+    # #! Option 2: Run all instances
+    # results = run_all_instances( mutation_rate=mutation_rate, memetic_attempts=memetic_mutation_attempts, population_size=population_size, max_generations=max_generations, verbose=True)
     # print(f"\nOverall Success Rate: {results['success_rate']*100:.1f}%")
+    # print("\n" + "=" * 80)
+    # print("BEST SEQUENCES FOR ALL INSTANCES")
+    # print("=" * 80)
+    # for result in results['all_results']:
+    #     print(f"\n{result['name']} (Fitness: {result['final_fitness']:.4f}):")
+    #     print(f"  Sequence: {result['best_individual'].ids}")
+    #     status = "SUCCESS" if result['is_successful'] else "FAILED"
+    #     print(f"  Status: {status}")
+
+
+
+    #! Option 3: Test specific sequences
+    print("\nOption 3: Testing specific sequences")
+    basic_instances = container_instances.create_basic_instances()
+    instance = basic_instances[2]  # Use the first basic instance
+    # Test a specific sequence
+    sequence = [1, 2, 3, 4, 5]  # NOTE: Ensure ids used are present in instance
+    result = evaluate_and_visualize_sequence(instance, sequence, show_visualization=True)
 
 if __name__ == "__main__":
     main()
