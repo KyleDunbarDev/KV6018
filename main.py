@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.patches import Circle as PltCircle
 
+random.seed(42)
+
 class Vector2:
     def __init__(self, x: float, y: float):
         self.x = x
@@ -416,11 +418,22 @@ class Individual:
             )
             ax.add_patch(safe_zone)
 
+        # Build title
+        if hasattr(self, 'ids'):
+            sequence_str = str(self.ids)
+            if len(self.ids) > 10:
+                # Truncate long sequences
+                sequence_str = str(self.ids[:10]) + "..."
+
+            full_title = f"{title}\nFitness: {self.fitness:.2f}\nSequence: {sequence_str}"
+        else:
+            full_title = f"{title}\nFitness: {self.fitness:.2f}"
+
         # Set up the plot
         ax.set_xlim(0, container.width)
         ax.set_ylim(0, container.depth)
         ax.set_aspect("equal")
-        ax.set_title(f"{title}\nFitness: {self.fitness:.2f}")
+        ax.set_title(full_title, fontsize=14, fontweight='bold', pad=20)
         ax.set_xlabel("Width (m)")
         ax.set_ylabel("Depth (m)")
         ax.grid(True, alpha=0.3)
@@ -524,7 +537,7 @@ class Population:
         """
         return max(self.individuals, key=lambda ind: ind.fitness)
 
-    def evolve(self, mutation_rate = 0.01, memetic_attempts = 10, elitism = True):
+    def evolve(self, mutation_rate = 0.01, elitism = True):
         """
         Creates next generation through selection, crossover, and mutation.
         Replaces self.individuals in place
@@ -573,15 +586,15 @@ class Population:
         stats = self.get_stats()
 
         out = f"""
-            Best: {stats['best']}\n
-            Average: {stats['average']}\n
-            Worst: {stats['worst']}\n
+            Best: {stats['best']}
+            Average: {stats['average']}
+            Worst: {stats['worst']}
             """
 
         print(out)
 
 
-def run_single_instance(instance, mutation_rate=0.01, memetic_attempts=10, population_size=200, max_generations=500, print_interval=20, draw_result=True):
+def run_single_instance(instance, mutation_rate=0.01, population_size=200, max_generations=500, print_interval=20, draw_result=True):
     """
     Run the GA on a single instance with visualisation.
 
@@ -603,7 +616,7 @@ def run_single_instance(instance, mutation_rate=0.01, memetic_attempts=10, popul
 
     # Evolution
     for gen in range(max_generations):
-        population.evolve(mutation_rate, memetic_attempts)
+        population.evolve(mutation_rate)
 
         if print_interval > 0 and gen % print_interval == 0:
             print(f"------Generation {gen}------")
@@ -621,7 +634,7 @@ def run_single_instance(instance, mutation_rate=0.01, memetic_attempts=10, popul
         'instance': instance
     }
 
-def run_all_instances(mutation_rate=0.01, memetic_attempts=10, population_size=200, max_generations=500, print_interval=50, verbose=True):
+def run_all_instances(mutation_rate=0.01,population_size=200, max_generations=500, print_interval=50, verbose=True):
     """
     Run the GA on all available instances and analyse results.
 
@@ -649,7 +662,7 @@ def run_all_instances(mutation_rate=0.01, memetic_attempts=10, population_size=2
     print("RUNNING GENETIC ALGORITHM ON ALL INSTANCES")
     print("=" * 80)
     print(f"Parameters: pop_size={population_size}, generations={max_generations}")
-    print(f"            mutation_rate={mutation_rate}, memetic_attempts={memetic_attempts}")
+    print(f"            mutation_rate={mutation_rate}")
     print("=" * 80)
     print()
 
@@ -669,7 +682,7 @@ def run_all_instances(mutation_rate=0.01, memetic_attempts=10, population_size=2
 
         # Evolution
         for gen in range(max_generations):
-            population.evolve(mutation_rate, memetic_attempts)
+            population.evolve(mutation_rate)
 
             if verbose and gen % print_interval == 0:
                 stats = population.get_stats()
@@ -849,8 +862,7 @@ def evaluate_and_visualise_sequence(instance, id_sequence, show_visualization=Tr
     }
 
 def main():
-    memetic_mutation_attempts = 10
-    mutation_rate = 0.01
+    mutation_rate = 1
     population_size = 200
     max_generations = 200
 
@@ -861,30 +873,30 @@ def main():
 
 
     #! Option 1: Run single given instance
-    ## Choose instance
+    # Choose instance
     # instance: Instance = container_instances.create_basic_instances()[0]
-    # # instance: Instance = container_instances.create_challenging_instances()[0]
-    #
-    # result = run_single_instance(instance=instance, mutation_rate=mutation_rate, memetic_attempts=memetic_mutation_attempts, population_size=population_size, max_generations=max_generations, print_interval=20, draw_result=True)
-    # print(f"\nFinal fitness: {result['final_stats']['best']:.4f}")
-    # print(f"Best sequence (cylinder IDs): {result['best_individual'].ids}")
-    # print(f"Best sequence (full details):")
-    # for i, cyl in enumerate(result['best_individual'].cylinders):
-    #     print(f"  Position {i+1}: ID={cyl.id}, Diameter={cyl.diameter}, Weight={cyl.weight}")
+    instance: Instance = container_instances.create_challenging_instances()[3]
+
+    result = run_single_instance(instance=instance, mutation_rate=mutation_rate, population_size=population_size, max_generations=max_generations, print_interval=20, draw_result=True)
+    print(f"\nFinal fitness: {result['final_stats']['best']:.4f}")
+    print(f"Best sequence (cylinder IDs): {result['best_individual'].ids}")
+    print(f"Best sequence (full details):")
+    for i, cyl in enumerate(result['best_individual'].cylinders):
+        print(f"  Position {i+1}: ID={cyl.id}, Diameter={cyl.diameter}, Weight={cyl.weight}")
 
 
 
     # #! Option 2: Run all instances
-    results = run_all_instances( mutation_rate=mutation_rate, memetic_attempts=memetic_mutation_attempts, population_size=population_size, max_generations=max_generations, verbose=True)
-    print(f"\nOverall Success Rate: {results['success_rate']*100:.1f}%")
-    print("\n" + "=" * 80)
-    print("BEST SEQUENCES FOR ALL INSTANCES")
-    print("=" * 80)
-    for result in results['all_results']:
-        print(f"\n{result['name']} (Fitness: {result['final_fitness']:.4f}):")
-        print(f"  Sequence: {result['best_individual'].ids}")
-        status = "SUCCESS" if result['is_successful'] else "FAILED"
-        print(f"  Status: {status}")
+    # results = run_all_instances( mutation_rate=mutation_rate, population_size=population_size, max_generations=max_generations, verbose=True)
+    # print(f"\nOverall Success Rate: {results['success_rate']*100:.1f}%")
+    # print("\n" + "=" * 80)
+    # print("BEST SEQUENCES FOR ALL INSTANCES")
+    # print("=" * 80)
+    # for result in results['all_results']:
+    #     print(f"\n{result['name']} (Fitness: {result['final_fitness']:.4f}):")
+    #     print(f"  Sequence: {result['best_individual'].ids}")
+    #     status = "SUCCESS" if result['is_successful'] else "FAILED"
+    #     print(f"  Status: {status}")
 
 
 
