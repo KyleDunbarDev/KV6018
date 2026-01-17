@@ -1,4 +1,5 @@
-from container_instances import Cylinder, Container
+import container_instances
+from container_instances import Cylinder, Container, Instance
 import random
 import math
 from typing import List
@@ -115,13 +116,18 @@ class Individual:
 
         return 0-(penalty_overlap + penalty_bounds + penalty_capacity + penalty_CM)
 
-    def mutate(self, mutation_rate: float, max_attempts: int):
+    def memetic_mutate(self, mutation_rate: float, max_attempts: int):
         """
         Local search mutation function.
         Iterates through random swaps and evaluates fitness
             - If fitness is higher, the gene is replaced.
             - Else runs until max_attempts.
         """
+    def mutate(self, mutation_rate: float):
+            """
+            Random mutation function.
+            Swaps genes in the genome regardless of fitness
+            """
 
     def __str__(self):
         return f"Genes (id): {self.ids}, Fitness: {self.fitness}"
@@ -141,7 +147,7 @@ class Population:
         gene = self.cylinders.copy() # Copy to shuffle (shuffle shuffles in place)
         self.individuals = [Individual(random.shuffle(cylinders)) for _ in range(pop_size)]
 
-    def tournament_selection(self, tournament_size = 3):
+    def tournament_selection(self, tournament_size = 3) -> Individual:
         """
         Select an individual using tournament selection
 
@@ -155,7 +161,7 @@ class Population:
         tournament = random.sample(self.individuals, tournament_size)
         return max(tournament, key=lambda indiv: indiv.fitness)
 
-    def crossover(self, parent1, parent2):
+    def crossover(self, parent1, parent2) -> Individual:
         """
         Order Crossover OX1 to preserve order and ensure no duplication
 
@@ -200,13 +206,72 @@ class Population:
         for cylinder_id in child_genome:
             child_cylinders.append(cylinders_by_id[cylinder_id])
 
-        return child_cylinders
+        return Individual(child_cylinders)
+
+    def evaluate_population(self, container):
+        """
+        Calculates fitness for the current population
+        """
+        for individual in self.individuals:
+            individual.calculate_fitness(container)
+
+    def get_best_individual(self):
+        """
+        Returns individual with highest fitness
+        """
+        return max(self.individuals, key=lambda ind: ind.fitness)
+
+    def evolve(self, mutation_rate = 0.01, elitism = True):
+        """
+        Creates next generation through selection, crossover, and mutation.
+        Replaces self.individuals in place
+
+        Args:
+            mutation_rate:  Chance of mutation per gene
+            elitism: if True, most fit individual is guaranteed to be kept
+        """
+
+        new_individuals = []
+
+        # Elitism
+        if elitism:
+            new_individuals.append(self.get_best_individual())
+
+        while len(new_individuals) < self.pop_size:
+            # Selection
+            parent1 = self.tournament_selection()
+            parent2 = self.tournament_selection()
+            # Breed
+            child = self.crossover(parent1, parent2)
+            # Mutate
+            child.mutate(mutation_rate)
+
+            new_individuals.append(child)
+
+        self.individuals = new_individuals
+
+    def get_stats(self):
+        """
+        Calculates population statistics.
+        Should be used after evaluating population.
+
+        Returns:
+            Dictionary with 'best', 'average', 'worst' fitness values
+        """
+        fitnesses = [individual.fitness for individual in self.individuals]
+        return {
+            'best': max(fitnesses),
+            'average': sum(fitnesses) / len(fitnesses),
+            'worst': min(fitnesses)
+        }
 
 def main():
-    mutation_attempts = 10
-    mutation_rate = 0.02
-    population_size = 300
-    pass
+    memetic_mutation_attempts = 10
+    mutation_rate = 0.01
+    population_size = 200
+
+    instance: Instance = container_instances.create_basic_instances()[0]
+    population = Population(100, instance.cylinders)
 
 if __name__ == "__main__":
     main()
