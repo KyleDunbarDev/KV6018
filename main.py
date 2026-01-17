@@ -27,6 +27,7 @@ class Individual:
         self.diameters = [cylinder.diameter for cylinder in cylinders]
         self.weights = [cylinder.weight for cylinder in cylinders]
         self.fitness = 0
+        self.positions = [] # Placement cache
 
     def calculate_fitness(self, container: Container) -> float:
         """
@@ -37,97 +38,196 @@ class Individual:
         Returns:
             Fitness value (float)
         """
-        # Placement
+        # Reset positions
+        self.positions = []
         radii = [diameter/2 for diameter in self.diameters]
-        positions: list[Vector2] = []
-        ## Place first cylinder
-        positions.append(Vector2(0+radii[0], 0+radii[0]))
 
-        ## Place subsequent cylinders
-        for i, cyl in enumerate(self.cylinders[1:]):
-            # Get previous and next cylinders' radii. Find next x
-            prev_r = radii[i]
-            next_r = radii[i+1]
-            next_x = positions[i].x + prev_r + next_r # Candidate x using bottom-left heuristic. COULD: Candidate x positions beginning from left wall in case of gaps. Not attractive because of weight balancing constraint
+        # Initialize feasible region (entire container minus boundaries)
+        feasible_region = {
+            'x_min': 0,
+            'x_max': container.width,
+            'y_min': 0,
+            'y_max': container.depth
+        }
 
-            # Check if fits in row
-            if next_x + next_r <= container.width:
-                # Find min y
-                next_y = next_r
-                ## Get cylinders in the column of radius
-                for j, pos in enumerate(positions):
-                    rad_j = radii[j]
-                    dx = abs(next_x - pos.x)
+        # Try to place each cylinder in sequence
+        for i, cyl in enumerate(self.cylinders):
+            radius = radii[i]
+            placed = False
 
-                    if dx < (next_r + rad_j): # Only cylinders whose x-range overlaps can block placement
-                        dy = math.sqrt((next_r + rad_j) ** 2 - dx ** 2)
-                        # Get lowest y that is above all blocking cylinders
-                        next_y = max(next_y, pos.y + dy)
-                positions.append(Vector2(next_x, next_y))
+            # Try multiple candidate positions for feasibility
+            candidate_positions = []
 
-            else: # Go to next row
-                next_x = next_r
-                next_y = positions[i].y + prev_r + next_r
-                positions.append(Vector2(next_x, next_y))
+            # Generate candidate positions based on loading from rear (y=0)
+            # Try positions along the rear wall first, then expand
+            grid_step = radius / 2  # Grid for candidate positions
 
-        # Fitness
-        ## Check for overlap
+            # If first cylinder, try to place near rear wall
+            if i == 0:
+                # Start from rear (y = radius to avoid boundary violation)
+                for y_offset in [radius, radius*2, radius*3]:
+                    for x in np.arange(radius, container.width - radius, grid_step):
+                        candidate_positions.append(Vector2(x, y_offset))
+
+            # For subsequent cylinders, try positions that:
+            # 1. Are near already placed cylinders (to pack efficiently)
+            # 2. Are along the current "frontier" of placed cylinders
+            else:
+                # Generate grid of candidate positions
+                for y in np.arange(radius, container.depth - radius, grid_step):
+                    for x in np.arange(radius, container.width - radius, grid_step):
+                        candidate_positions.append(Vector2(x, y))
+
+                # Also try positions tangent to already placed cylinders
+                for j, existing_pos in enumerate(self.positions[:i]):
+                    existing_radius = radii[j]
+                    # Try positions around existing cylinder
+                    for angle in np.linspace(0, 2*math.pi, 16):
+                        dx = math.cos(angle) * (radius + existing_radius)
+                        dy = math.sin(angle) * (radius + existing_radius)
+                        candidate = Vector2(existing_pos.x + dx, existing_pos.y + dy)
+                        candidate_positions.append(candidate)
+
+            # Shuffle candidates to avoid bias
+            random.shuffle(candidate_positions)
+
+            # Try candidates in order
+            for pos in candidate_positions:
+                if self.is_position_feasible(pos, radius, i, radii, container):
+                    self.positions.append(pos)
+                    placed = True
+                    break
+
+            # If no feasible position found, use a fallback position with penalty
+            if not placed:
+                # Place at a default position (will incur heavy penalty)
+                fallback_pos = Vector2(
+                    container.width/2 + random.uniform(-1, 1),
+                    container.depth/2 + random.uniform(-1, 1)
+                )
+                self.positions.append(fallback_pos)
+
+        # Calculate fitness penalties
+        return self._calculate_penalties(radii, container)
+
+    def is_position_feasible(self, pos: Vector2, radius: float, current_idx: int, radii: List[float], container: Container) -> bool:
+        """
+        Check if a position is feasible for the current cylinder.
+        """
+        # Check container boundaries
+        if (pos.x - radius < 0 or pos.x + radius > container.width or
+            pos.y - radius < 0 or pos.y + radius > container.depth):
+            return False
+
+        # Check overlap with already placed cylinders
+        for j in range(current_idx):
+            existing_pos = self.positions[j]
+            existing_radius = radii[j]
+            distance = math.sqrt((pos.x - existing_pos.x)**2 +
+                                (pos.y - existing_pos.y)**2)
+            if distance < (radius + existing_radius - 1e-6):  # Small tolerance
+                return False
+
+        return True
+
+    def _calculate_penalties(self, radii: List[float], container: Container) -> float:
+        """
+        Calculate all penalty components.
+        """
+        # Penalty for overlap
         penalty_overlap = 0
-        for i, cyl_i in enumerate(self.cylinders):
-            for j, cyl_j  in enumerate(self.cylinders):
-                distance = math.sqrt((positions[i].x - positions[j].x)**2 + (positions[i].y - positions[j].y)**2)
-                overlap = max(0, (radii[i]+radii[j]) - distance)
-                penalty_overlap += overlap**2 # Squared so penalty is proportional to overlap
+        n = len(self.cylinders)
+        for i in range(n):
+            for j in range(i + 1, n):
+                distance = math.sqrt(
+                    (self.positions[i].x - self.positions[j].x)**2 +
+                    (self.positions[i].y - self.positions[j].y)**2
+                )
+                min_distance = radii[i] + radii[j]
+                if distance < min_distance:
+                    overlap = min_distance - distance
+                    penalty_overlap += overlap**2
 
-        ## Check for boundary escape
+        # Penalty for boundary violation
         penalty_bounds = 0
-        for i, cyl in enumerate(self.cylinders):
-            upper = max(0, radii[i]+ positions[i].y - container.depth)
-            lower = max(0, radii[i] - positions[i].y)
-            left = max(0, radii[i] - positions[i].x)
-            right = max(0, radii[i] + positions[i].x - container.width)
-            penalty_bounds += upper**2 + lower**2 + left**2 + right**2
+        for i, pos in enumerate(self.positions):
+            radius = radii[i]
+            # Check each boundary
+            if pos.x - radius < 0:
+                penalty_bounds += (radius - pos.x)**2
+            if pos.x + radius > container.width:
+                penalty_bounds += (pos.x + radius - container.width)**2
+            if pos.y - radius < 0:
+                penalty_bounds += (radius - pos.y)**2
+            if pos.y + radius > container.depth:
+                penalty_bounds += (pos.y + radius - container.depth)**2
 
-        ## Check if max weight exceeds capacity. Should always be 0
-        penalty_capacity = 0
-        penalty_capacity += max(0, sum(self.weights) - container.max_weight)
-
-        ## Check if centre of mass is within 60%
-        penalty_CM = 0
-
-        cm_x = 0
-        cm_y = 0
-        # Calculaye CM along axes
+        # Penalty for weight capacity
         total_weight = sum(self.weights)
-        weighted_x = 0
-        weighted_y = 0
-        for i, cyl in enumerate(self.cylinders):
-            weighted_x += self.weights[i] * positions[i].x
-            weighted_y += self.weights[i] * positions[i].y
+        penalty_capacity = max(0, total_weight - container.max_weight)**2
 
-        if total_weight != 0:
-            cm_x = weighted_x / total_weight
-            cm_y = weighted_y / total_weight
-
-        # Penalise if CM < 0.2 or CM > 0.8 on each axis
-        penalty_CM += max(0, 0.2 * container.width - cm_x)
-        penalty_CM += max(0, cm_x - 0.8 * container.width)
-        penalty_CM += max(0, 0.2 * container.depth - cm_y)
-        penalty_CM += max(0, cm_y - 0.8 * container.depth)
-        penalty_CM *= 10
+        # Penalty for center of mass outside central 60%
+        penalty_CM = 0
+        reward_CM = 0
 
 
-        self.fitness = 0 -(penalty_overlap + penalty_bounds + penalty_capacity + penalty_CM)
+
+        if total_weight > 0:
+            cm_x = sum(self.weights[i] * self.positions[i].x for i in range(n)) / total_weight
+            cm_y = sum(self.weights[i] * self.positions[i].y for i in range(n)) / total_weight
+
+            # Distance from center (normalized)
+            centre_x = container.width/2
+            centre_y = container.depth/2
+            distance_from_center_x = abs(cm_x - centre_x) / (container.width / 2)
+            distance_from_center_y = abs(cm_y - centre_y) / (container.depth / 2)
+            # Reward for being close to centre
+            reward_CM = 100 * (1 - distance_from_center_x) * (1 - distance_from_center_y)
+
+            # Center should be within 20% to 80% of container dimensions
+            if cm_x < 0.2 * container.width:
+                penalty_CM += (0.2 * container.width - cm_x)**2
+            if cm_x > 0.8 * container.width:
+                penalty_CM += (cm_x - 0.8 * container.width)**2
+            if cm_y < 0.2 * container.depth:
+                penalty_CM += (0.2 * container.depth - cm_y)**2
+            if cm_y > 0.8 * container.depth:
+                penalty_CM += (cm_y - 0.8 * container.depth)**2
+            # Reward for CM being close to centre
+            centre = Vector2(container.width/2, container.depth/2)
+            dist = math.sqrt((centre.x - cm_x)**2
+                + (centre.y - cm_y)**2 )
+            penalty_CM -= dist
+        else:
+            penalty_CM = 0
+            reward_CM = 0
+
+
+        # Total penalty (negative for fitness maximization)
+        total_penalty = (
+            penalty_overlap * 10.0 +
+            penalty_bounds * 5.0 +
+            penalty_capacity * 100.0 +
+            penalty_CM * 2.0
+        )
+
+        self.fitness = -total_penalty + reward_CM
         return self.fitness
 
+    def mutate(self, mutation_rate: float):
+        if random.random() < mutation_rate:
+            i, j = random.sample(range(len(self.cylinders)), 2)
+            self.cylinders[i], self.cylinders[j] = self.cylinders[j], self.cylinders[i]
+
+            # Update cached attributes
+            self.ids = [c.id for c in self.cylinders]
+            self.diameters = [c.diameter for c in self.cylinders]
+            self.weights = [c.weight for c in self.cylinders]
+            self.positions = []  # Reset positions since genome changed
+
     def memetic_mutate(self, mutation_rate: float, max_attempts: int, container: Container):
-        """
-        Local search mutation function.
-        Iterates through random swaps and evaluates fitness
-            - If fitness is higher, the gene is replaced.
-            - Else runs until max_attempts.
-        """
         best_fitness = self.fitness
+        best_positions = self.positions.copy() if self.positions else []
 
         for _ in range(max_attempts):
             # Choose two positions to swap
@@ -140,6 +240,7 @@ class Individual:
             self.ids = [c.id for c in self.cylinders]
             self.diameters = [c.diameter for c in self.cylinders]
             self.weights = [c.weight for c in self.cylinders]
+            self.positions = []  # Reset positions
 
             # Evaluate new fitness
             new_fitness = self.calculate_fitness(container)
@@ -148,6 +249,7 @@ class Individual:
                 # Accept improvement
                 self.fitness = new_fitness
                 best_fitness = new_fitness
+                best_positions = self.positions.copy()
             else:
                 # Revert swap
                 self.cylinders[i], self.cylinders[j] = self.cylinders[j], self.cylinders[i]
@@ -155,20 +257,8 @@ class Individual:
                 self.diameters = [c.diameter for c in self.cylinders]
                 self.weights = [c.weight for c in self.cylinders]
 
-    def mutate(self, mutation_rate: float):
-            """
-            Random mutation function.
-            Swaps genes in the genome regardless of fitness
-            """
-
-            if random.random() < mutation_rate:
-                i, j = random.sample(range(len(self.cylinders)), 2)
-                self.cylinders[i], self.cylinders[j] = self.cylinders[j], self.cylinders[i]
-
-                # Update cached attributes
-                self.ids = [c.id for c in self.cylinders]
-                self.diameters = [c.diameter for c in self.cylinders]
-                self.weights = [c.weight for c in self.cylinders]
+        # Restore best positions
+        self.positions = best_positions
 
     def __str__(self):
         return f"Genes (id): {self.ids}, Fitness: {self.fitness}"
@@ -178,35 +268,13 @@ class Individual:
         """
         Visualise the container and cylinder placements to show fitness.
         """
-        # Recompute placement (same as fitness)
-        radii = [d / 2 for d in self.diameters]
-        positions = []
 
-        positions.append(Vector2(radii[0], radii[0]))
+        if not self.positions:
+            self.calculate_fitness(container)
 
-        for i in range(1, len(self.cylinders)):
-            prev_r = radii[i - 1]
-            next_r = radii[i]
+        fig, ax = plt.subplots(figsize=(8, 6))
 
-            next_x = positions[i - 1].x + prev_r + next_r
-
-            if next_x + next_r <= container.width:
-                next_y = next_r
-                for j, pos in enumerate(positions):
-                    rad_j = radii[j]
-                    dx = abs(next_x - pos.x)
-                    if dx < (next_r + rad_j):
-                        dy = math.sqrt((next_r + rad_j) ** 2 - dx ** 2)
-                        next_y = max(next_y, pos.y + dy)
-            else:
-                next_x = next_r
-                next_y = positions[i - 1].y + prev_r + next_r
-
-            positions.append(Vector2(next_x, next_y))
-
-        fig, ax = plt.subplots(figsize=(6, 6))
-
-        # Container
+        # Draw container
         container_rect = patches.Rectangle(
             (0, 0),
             container.width,
@@ -217,48 +285,53 @@ class Individual:
         )
         ax.add_patch(container_rect)
 
-        # Cylinders
-        for i, pos in enumerate(positions):
+        # Draw cylinders
+        radii = [d/2 for d in self.diameters]
+        for i, (pos, radius) in enumerate(zip(self.positions, radii)):
             circle = patches.Circle(
                 (pos.x, pos.y),
-                radii[i],
+                radius,
                 edgecolor="tab:blue",
-                facecolor="none",
+                facecolor="lightblue",
+                alpha=0.7,
                 linewidth=2
             )
             ax.add_patch(circle)
-            ax.text(pos.x, pos.y, str(self.ids[i]),
-                    ha="center", va="center", fontsize=9)
+            # Add cylinder ID and weight
+            ax.text(pos.x, pos.y, f"{self.ids[i]}\n{self.weights[i]}kg",
+                   ha="center", va="center", fontsize=8, fontweight='bold')
 
-        # Centre of Mass
+        # Draw center of mass and safe zone
         total_weight = sum(self.weights)
         if total_weight > 0:
-            cm_x = sum(self.weights[i] * positions[i].x for i in range(len(self.weights))) / total_weight
-            cm_y = sum(self.weights[i] * positions[i].y for i in range(len(self.weights))) / total_weight
+            cm_x = sum(self.weights[i] * self.positions[i].x for i in range(len(self.weights))) / total_weight
+            cm_y = sum(self.weights[i] * self.positions[i].y for i in range(len(self.weights))) / total_weight
 
-            ax.plot(cm_x, cm_y, "rx", markersize=10, label="Centre of Mass")
+            # Center of mass marker
+            ax.plot(cm_x, cm_y, "rx", markersize=12, markeredgewidth=2, label="Center of Mass")
 
-            # CM safe zone
-            ax.add_patch(
-                patches.Rectangle(
-                    (0.2 * container.width, 0.2 * container.depth),
-                    0.6 * container.width,
-                    0.6 * container.depth,
-                    linestyle="--",
-                    linewidth=1,
-                    edgecolor="red",
-                    facecolor="none",
-                    label="CM Safe Zone"
-                )
+            # Safe zone (central 60%)
+            safe_zone = patches.Rectangle(
+                (0.2 * container.width, 0.2 * container.depth),
+                0.6 * container.width,
+                0.6 * container.depth,
+                linestyle="--",
+                linewidth=1,
+                edgecolor="green",
+                facecolor="none",
+                alpha=0.5,
+                label="CM Safe Zone"
             )
+            ax.add_patch(safe_zone)
 
-        # Aesthetics
+        # Set up the plot
         ax.set_xlim(0, container.width)
         ax.set_ylim(0, container.depth)
         ax.set_aspect("equal")
-        ax.set_title(f"Fitness = {self.fitness:.2f}")
-        ax.set_xlabel("Width")
-        ax.set_ylabel("Depth")
+        ax.set_title(f"{title}\nFitness: {self.fitness:.2f}")
+        ax.set_xlabel("Width (m)")
+        ax.set_ylabel("Depth (m)")
+        ax.grid(True, alpha=0.3)
         ax.legend(loc="upper right")
 
         plt.tight_layout()
@@ -384,8 +457,8 @@ class Population:
             # Mutate
             child.mutate(mutation_rate)
             # Memetic mutate
-            child.calculate_fitness(self.container)
-            child.memetic_mutate(mutation_rate, memetic_attempts, self.container)
+            # child.calculate_fitness(self.container)
+            # child.memetic_mutate(mutation_rate, memetic_attempts, self.container)
 
             new_individuals.append(child)
 
@@ -608,7 +681,7 @@ def main():
     memetic_mutation_attempts = 10
     mutation_rate = 0.01
     population_size = 200
-    max_generations = 500
+    max_generations = 200
 
 
     # You can choose to run a single instance with visualation or all instances with a report & visualisations
@@ -616,31 +689,31 @@ def main():
 
     # Option 1: Run single given instance
     ## Choose instance
-    # instance: Instance = container_instances.create_basic_instances()[0]
-    # # instance: Instance = container_instances.create_challenging_instances()[0]
+    instance: Instance = container_instances.create_basic_instances()[0]
+    # instance: Instance = container_instances.create_challenging_instances()[0]
 
-    # result = run_single_instance(
-    #         instance=instance,
-    #         mutation_rate=mutation_rate,
-    #         memetic_attempts=memetic_mutation_attempts,
-    #         population_size=population_size,
-    #         max_generations=max_generations,
-    #         print_interval=20,
-    #         draw_result=True
-    #     )
+    result = run_single_instance(
+            instance=instance,
+            mutation_rate=mutation_rate,
+            memetic_attempts=memetic_mutation_attempts,
+            population_size=population_size,
+            max_generations=max_generations,
+            print_interval=20,
+            draw_result=True
+        )
 
-    # print(f"\nFinal fitness: {result['final_stats']['best']:.4f}")
+    print(f"\nFinal fitness: {result['final_stats']['best']:.4f}")
 
 
     # Option 2: Run all instances
-    results = run_all_instances(
-        mutation_rate=mutation_rate,
-        memetic_attempts=memetic_mutation_attempts,
-        population_size=population_size,
-        max_generations=max_generations,
-        verbose=True
-    )
-    print(f"\nOverall Success Rate: {results['success_rate']*100:.1f}%")
+    # results = run_all_instances(
+    #     mutation_rate=mutation_rate,
+    #     memetic_attempts=memetic_mutation_attempts,
+    #     population_size=population_size,
+    #     max_generations=max_generations,
+    #     verbose=True
+    # )
+    # print(f"\nOverall Success Rate: {results['success_rate']*100:.1f}%")
 
 if __name__ == "__main__":
     main()
