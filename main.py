@@ -419,7 +419,190 @@ class Population:
         print(out)
 
 
+def run_single_instance(instance, mutation_rate=0.01, memetic_attempts=10, population_size=200, max_generations=500, print_interval=20, draw_result=True):
+    """
+    Run the GA on a single instance with visualisation.
 
+    Args:
+        instance: Instance to solve with name, container, and list of cylinders
+        mutation_rate: Probability of mutation per gene
+        memetic_attempts: Number of local search attempts before stopping
+        population_size: Size of population
+        max_generations: Maximum number of generations to evolve
+        print_interval: Print stats every N generations (0 to disable)
+        draw_result: If True, visualise the best solution
+
+    Returns:
+        Dictionary containing the best individual and statistics
+    """
+    # Initialise population
+    population = Population(population_size, instance.cylinders, instance.container)
+    population.evaluate_population()
+
+    # Evolution
+    for gen in range(max_generations):
+        population.evolve(mutation_rate, memetic_attempts)
+
+        if print_interval > 0 and gen % print_interval == 0:
+            print(f"------Generation {gen}------")
+            population.print_stats()
+
+    # Get best solution
+    best = population.get_best_individual()
+    # Visualise
+    if draw_result:
+        best.draw(instance.container)
+
+    return {
+        'best_individual': best,
+        'final_stats': population.get_stats(),
+        'instance': instance
+    }
+
+def run_all_instances(mutation_rate=0.01, memetic_attempts=10, population_size=200, max_generations=500, verbose=True):
+    """
+    Run the GA on all available instances and analyse results.
+
+    Args:
+        mutation_rate: Probability of mutation per gene
+        memetic_attempts: Number of local search attempts before stopping
+        population_size: Size of population
+        max_generations: Maximum number of generations to evolve
+        verbose: If True, prints progress during evolution
+
+    Returns:
+        Dictionary containing results for each instance
+    """
+    # Gather all instances
+    all_instances = []
+    basic = container_instances.create_basic_instances()
+    challenging = container_instances.create_challenging_instances()
+
+    all_instances.extend([("Basic", inst) for inst in basic])
+    all_instances.extend([("Challenging", inst) for inst in challenging])
+
+    results = []
+
+    print("=" * 80)
+    print("RUNNING GENETIC ALGORITHM ON ALL INSTANCES")
+    print("=" * 80)
+    print(f"Parameters: pop_size={population_size}, generations={max_generations}")
+    print(f"            mutation_rate={mutation_rate}, memetic_attempts={memetic_attempts}")
+    print("=" * 80)
+    print()
+
+    for category, instance in all_instances:
+        print(f"\n{'=' * 80}")
+        print(f"Instance: {instance.name} ({category})")
+        print(f"Container: {instance.container.width}m × {instance.container.depth}m, "
+              f"max weight: {instance.container.max_weight}kg")
+        print(f"Cylinders: {len(instance.cylinders)}")
+        print(f"{'=' * 80}")
+
+        # Initialise population
+        population = Population(population_size, instance.cylinders, instance.container)
+        population.evaluate_population()
+
+        initial_stats = population.get_stats()
+
+        # Evolution
+        for gen in range(max_generations):
+            population.evolve(mutation_rate, memetic_attempts)
+
+            if verbose and gen % 100 == 0:
+                stats = population.get_stats()
+                print(f"Generation {gen:4d}: Best={stats['best']:8.2f}, "
+                      f"Avg={stats['average']:8.2f}, Worst={stats['worst']:8.2f}")
+
+        # Final statistics
+        final_stats = population.get_stats()
+        best_individual = population.get_best_individual()
+
+        # Determine success (fitness >= -0.01 is considered successful - small tolerance for numerical errors)
+        is_successful = final_stats['best'] >= -0.01
+
+        print(f"\n{'=' * 40}")
+        print(f"FINAL RESULTS:")
+        print(f"  Initial Best Fitness: {initial_stats['best']:.4f}")
+        print(f"  Final Best Fitness:   {final_stats['best']:.4f}")
+        print(f"  Final Avg Fitness:    {final_stats['average']:.4f}")
+        print(f"  Improvement:          {final_stats['best'] - initial_stats['best']:.4f}")
+        print(f"  Status:               {'SUCCESS' if is_successful else 'FAILED'}")
+        print(f"{'=' * 40}")
+
+        # Store results
+        results.append({
+            'category': category,
+            'name': instance.name,
+            'instance': instance,
+            'best_individual': best_individual,
+            'initial_fitness': initial_stats['best'],
+            'final_fitness': final_stats['best'],
+            'avg_fitness': final_stats['average'],
+            'improvement': final_stats['best'] - initial_stats['best'],
+            'is_successful': is_successful,
+            'num_cylinders': len(instance.cylinders),
+            'container_area': instance.container.width * instance.container.depth
+        })
+
+        # Draw the best solution
+        best_individual.draw(instance.container,
+                            title=f"{instance.name} - Fitness: {final_stats['best']:.2f}")
+
+    # Print summary report
+    print("\n\n" + "=" * 80)
+    print("SUMMARY REPORT - ALL INSTANCES")
+    print("=" * 80)
+
+    # Sort by success (successful first) then by fitness (descending)
+    sorted_results = sorted(results,
+                           key=lambda x: (x['is_successful'], x['final_fitness']),
+                           reverse=True)
+
+    successful = [r for r in sorted_results if r['is_successful']]
+    failed = [r for r in sorted_results if not r['is_successful']]
+
+    print(f"\nSuccessful Instances: {len(successful)}/{len(results)}")
+    print(f"Failed Instances:     {len(failed)}/{len(results)}")
+
+    if successful:
+        print("\n" + "-" * 80)
+        print("SUCCESSFUL INSTANCES (sorted by fitness, descending):")
+        print("-" * 80)
+        print(f"{'Rank':<6} {'Instance Name':<35} {'Fitness':<12} {'Cylinders':<12}")
+        print("-" * 80)
+        for i, result in enumerate(successful, 1):
+            print(f"{i:<6} {result['name']:<35} {result['final_fitness']:>10.4f}  "
+                  f"{result['num_cylinders']:>10}")
+
+    if failed:
+        print("\n" + "-" * 80)
+        print("FAILED INSTANCES (sorted by fitness, descending):")
+        print("-" * 80)
+        print(f"{'Rank':<6} {'Instance Name':<35} {'Fitness':<12} {'Cylinders':<12}")
+        print("-" * 80)
+        for i, result in enumerate(failed, 1):
+            print(f"{i:<6} {result['name']:<35} {result['final_fitness']:>10.4f}  "
+                  f"{result['num_cylinders']:>10}")
+
+    print("\n" + "=" * 80)
+    print("DETAILED PERFORMANCE METRICS")
+    print("=" * 80)
+    print(f"{'Instance Name':<35} {'Initial':<12} {'Final':<12} {'Improvement':<12} {'Status':<10}")
+    print("-" * 80)
+    for result in sorted_results:
+        status = "SUCCESS" if result['is_successful'] else "FAILED"
+        print(f"{result['name']:<35} {result['initial_fitness']:>10.2f}  "
+              f"{result['final_fitness']:>10.2f}  {result['improvement']:>10.2f}  {status:<10}")
+
+    print("=" * 80)
+
+    return {
+        'all_results': sorted_results,
+        'successful': successful,
+        'failed': failed,
+        'success_rate': len(successful) / len(results) if results else 0
+    }
 
 def main():
     memetic_mutation_attempts = 10
@@ -427,20 +610,37 @@ def main():
     population_size = 200
     max_generations = 500
 
-    instance: Instance = container_instances.create_basic_instances()[0]
-    population = Population(100, instance.cylinders, instance.container)
 
-    population.evaluate_population()
+    # You can choose to run a single instance with visualation or all instances with a report & visualisations
+    # by commenting and uncommenting the respective options
 
-    for gen in range(max_generations):
-        population.evolve(mutation_rate, memetic_mutation_attempts)
+    # Option 1: Run single given instance
+    ## Choose instance
+    # instance: Instance = container_instances.create_basic_instances()[0]
+    # # instance: Instance = container_instances.create_challenging_instances()[0]
 
-        if gen % 20 == 0:
-            print(f"------Generation {gen}------")
-            population.print_stats()
+    # result = run_single_instance(
+    #         instance=instance,
+    #         mutation_rate=mutation_rate,
+    #         memetic_attempts=memetic_mutation_attempts,
+    #         population_size=population_size,
+    #         max_generations=max_generations,
+    #         print_interval=20,
+    #         draw_result=True
+    #     )
 
-    best = population.get_best_individual()
-    best.draw(instance.container)
+    # print(f"\nFinal fitness: {result['final_stats']['best']:.4f}")
+
+
+    # Option 2: Run all instances
+    results = run_all_instances(
+        mutation_rate=mutation_rate,
+        memetic_attempts=memetic_mutation_attempts,
+        population_size=population_size,
+        max_generations=max_generations,
+        verbose=True
+    )
+    print(f"\nOverall Success Rate: {results['success_rate']*100:.1f}%")
 
 if __name__ == "__main__":
     main()
