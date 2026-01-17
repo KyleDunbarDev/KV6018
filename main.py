@@ -42,7 +42,7 @@ class Individual:
         self.positions = []
         radii = [diameter/2 for diameter in self.diameters]
 
-        # Initialize feasible region (entire container minus boundaries)
+        # Initialise feasible region (entire container minus boundaries)
         feasible_region = {
             'x_min': 0,
             'x_max': container.width,
@@ -175,7 +175,7 @@ class Individual:
             cm_x = sum(self.weights[i] * self.positions[i].x for i in range(n)) / total_weight
             cm_y = sum(self.weights[i] * self.positions[i].y for i in range(n)) / total_weight
 
-            # Distance from center (normalized)
+            # Distance from center (normalised)
             centre_x = container.width/2
             centre_y = container.depth/2
             distance_from_center_x = abs(cm_x - centre_x) / (container.width / 2)
@@ -223,7 +223,7 @@ class Individual:
         radii = [d/2 for d in self.diameters]
         n = len(self.cylinders)
 
-        # Initialize penalties
+        # Initialise penalties
         penalty_overlap = 0
         penalty_bounds = 0
 
@@ -311,41 +311,6 @@ class Individual:
             self.diameters = [c.diameter for c in self.cylinders]
             self.weights = [c.weight for c in self.cylinders]
             self.positions = []  # Reset positions since genome changed
-
-    def memetic_mutate(self, mutation_rate: float, max_attempts: int, container: Container):
-        best_fitness = self.fitness
-        best_positions = self.positions.copy() if self.positions else []
-
-        for _ in range(max_attempts):
-            # Choose two positions to swap
-            i, j = random.sample(range(len(self.cylinders)), 2)
-
-            # Do swap
-            self.cylinders[i], self.cylinders[j] = self.cylinders[j], self.cylinders[i]
-
-            # Update genome attributes
-            self.ids = [c.id for c in self.cylinders]
-            self.diameters = [c.diameter for c in self.cylinders]
-            self.weights = [c.weight for c in self.cylinders]
-            self.positions = []  # Reset positions
-
-            # Evaluate new fitness
-            new_fitness = self.calculate_fitness(container)
-
-            if new_fitness > best_fitness:
-                # Accept improvement
-                self.fitness = new_fitness
-                best_fitness = new_fitness
-                best_positions = self.positions.copy()
-            else:
-                # Revert swap
-                self.cylinders[i], self.cylinders[j] = self.cylinders[j], self.cylinders[i]
-                self.ids = [c.id for c in self.cylinders]
-                self.diameters = [c.diameter for c in self.cylinders]
-                self.weights = [c.weight for c in self.cylinders]
-
-        # Restore best positions
-        self.positions = best_positions
 
     def __str__(self):
         return f"Genes (id): {self.ids}, Fitness: {self.fitness}"
@@ -543,9 +508,6 @@ class Population:
             child = self.crossover(parent1, parent2)
             # Mutate
             child.mutate(mutation_rate)
-            # Memetic mutate
-            # child.calculate_fitness(self.container)
-            # child.memetic_mutate(mutation_rate, memetic_attempts, self.container)
 
             new_individuals.append(child)
 
@@ -764,9 +726,9 @@ def run_all_instances(mutation_rate=0.01, memetic_attempts=10, population_size=2
         'success_rate': len(successful) / len(results) if results else 0
     }
 
-def evaluate_and_visualize_sequence(instance, id_sequence, show_visualization=True):
+def evaluate_and_visualise_sequence(instance, id_sequence, show_visualization=True):
     """
-    Evaluate and visualize a specific sequence of cylinder IDs.
+    Evaluate and visualise a specific sequence of cylinder IDs.
 
     Args:
         instance: The problem instance (from container_instances)
@@ -892,7 +854,7 @@ def main():
     instance = basic_instances[2]  # Use the first basic instance
     # Test a specific sequence
     sequence = [1, 2, 3, 4, 5]  # NOTE: Ensure ids used are present in instance
-    result = evaluate_and_visualize_sequence(instance, sequence, show_visualization=True)
+    result = evaluate_and_visualise_sequence(instance, sequence, show_visualization=True)
 
 if __name__ == "__main__":
     main()
