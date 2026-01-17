@@ -5,6 +5,8 @@ import math
 from typing import List, Dict
 import numpy as np
 import json
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
 class Vector2:
     def __init__(self, x: float, y: float):
@@ -72,7 +74,6 @@ class Individual:
         penalty_overlap = 0
         for i, cyl_i in enumerate(self.cylinders):
             for j, cyl_j  in enumerate(self.cylinders):
-                if i == j : break
                 distance = math.sqrt((positions[i].x - positions[j].x)**2 + (positions[i].y - positions[j].y)**2)
                 overlap = max(0, (radii[i]+radii[j]) - distance)
                 penalty_overlap += overlap**2 # Squared so penalty is proportional to overlap
@@ -84,7 +85,7 @@ class Individual:
             lower = max(0, radii[i] - positions[i].y)
             left = max(0, radii[i] - positions[i].x)
             right = max(0, radii[i] + positions[i].x - container.width)
-            penalty_bounds += upper+lower+left+right
+            penalty_bounds += upper**2 + lower**2 + left**2 + right**2
 
         ## Check if max weight exceeds capacity. Should always be 0
         penalty_capacity = 0
@@ -112,22 +113,61 @@ class Individual:
         penalty_CM += max(0, cm_x - 0.8 * container.width)
         penalty_CM += max(0, 0.2 * container.depth - cm_y)
         penalty_CM += max(0, cm_y - 0.8 * container.depth)
+        penalty_CM *= 10
 
 
-        return 0-(penalty_overlap + penalty_bounds + penalty_capacity + penalty_CM)
+        self.fitness = 0 -(penalty_overlap + penalty_bounds + penalty_capacity + penalty_CM)
+        return self.fitness
 
-    def memetic_mutate(self, mutation_rate: float, max_attempts: int):
+    def memetic_mutate(self, mutation_rate: float, max_attempts: int, container: Container):
         """
         Local search mutation function.
         Iterates through random swaps and evaluates fitness
             - If fitness is higher, the gene is replaced.
             - Else runs until max_attempts.
         """
+        best_fitness = self.fitness
+
+        for _ in range(max_attempts):
+            # Choose two positions to swap
+            i, j = random.sample(range(len(self.cylinders)), 2)
+
+            # Do swap
+            self.cylinders[i], self.cylinders[j] = self.cylinders[j], self.cylinders[i]
+
+            # Update genome attributes
+            self.ids = [c.id for c in self.cylinders]
+            self.diameters = [c.diameter for c in self.cylinders]
+            self.weights = [c.weight for c in self.cylinders]
+
+            # Evaluate new fitness
+            new_fitness = self.calculate_fitness(container)
+
+            if new_fitness > best_fitness:
+                # Accept improvement
+                self.fitness = new_fitness
+                best_fitness = new_fitness
+            else:
+                # Revert swap
+                self.cylinders[i], self.cylinders[j] = self.cylinders[j], self.cylinders[i]
+                self.ids = [c.id for c in self.cylinders]
+                self.diameters = [c.diameter for c in self.cylinders]
+                self.weights = [c.weight for c in self.cylinders]
+
     def mutate(self, mutation_rate: float):
             """
             Random mutation function.
             Swaps genes in the genome regardless of fitness
             """
+
+            if random.random() < mutation_rate:
+                i, j = random.sample(range(len(self.cylinders)), 2)
+                self.cylinders[i], self.cylinders[j] = self.cylinders[j], self.cylinders[i]
+
+                # Update cached attributes
+                self.ids = [c.id for c in self.cylinders]
+                self.diameters = [c.diameter for c in self.cylinders]
+                self.weights = [c.weight for c in self.cylinders]
 
     def __str__(self):
         return f"Genes (id): {self.ids}, Fitness: {self.fitness}"
@@ -219,7 +259,7 @@ class Population:
         Calculates fitness for the current population
         """
         for individual in self.individuals:
-            individual.calculate_fitness(self.container)
+            individual.fitness = individual.calculate_fitness(self.container)
 
     def get_best_individual(self):
         """
@@ -227,7 +267,7 @@ class Population:
         """
         return max(self.individuals, key=lambda ind: ind.fitness)
 
-    def evolve(self, mutation_rate = 0.01, elitism = True):
+    def evolve(self, mutation_rate = 0.01, memetic_attempts = 10, elitism = True):
         """
         Creates next generation through selection, crossover, and mutation.
         Replaces self.individuals in place
@@ -251,6 +291,9 @@ class Population:
             child = self.crossover(parent1, parent2)
             # Mutate
             child.mutate(mutation_rate)
+            # Memetic mutate
+            child.calculate_fitness(self.container)
+            child.memetic_mutate(mutation_rate, memetic_attempts, self.container)
 
             new_individuals.append(child)
 
@@ -295,11 +338,13 @@ def main():
     population.evaluate_population()
 
     for gen in range(max_generations):
-        population.evolve(mutation_rate)
+        population.evolve(mutation_rate, memetic_mutation_attempts)
 
         if gen % 20 == 0:
             print(f"------Generation {gen}------")
             population.print_stats()
 
+    best = population.get_best_individual()
+    best.draw()
 if __name__ == "__main__":
     main()
