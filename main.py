@@ -204,47 +204,31 @@ class Individual:
 
             positions.append(Vector2(next_x, next_y))
 
-        # Plot setup
-        fig, ax = plt.subplots(figsize=(10, 10))
+        fig, ax = plt.subplots(figsize=(6, 6))
 
-        # Container rectangle
-        container_patch = patches.Rectangle(
+        # Container
+        container_rect = patches.Rectangle(
             (0, 0),
             container.width,
             container.depth,
-            fill=False,
-            edgecolor='black',
             linewidth=2,
-            linestyle='--',
-            facecolor='none',
-            label='Container'
+            edgecolor="black",
+            facecolor="none"
         )
-        ax.add_patch(container_patch)
+        ax.add_patch(container_rect)
 
-        # Draw cylinders
+        # Cylinders
         for i, pos in enumerate(positions):
-            circle = PltCircle(
+            circle = patches.Circle(
                 (pos.x, pos.y),
                 radii[i],
-                fill=False,
-                edgecolor='#99D9DD',
-                facecolor='none',
+                edgecolor="tab:blue",
+                facecolor="none",
                 linewidth=2
             )
             ax.add_patch(circle)
-
-            # Center point
-            ax.plot(pos.x, pos.y, 'o', color='#99D9DD', markersize=5)
-
-            # ID label
-            ax.text(
-                pos.x, pos.y,
-                f'{self.ids[i]}',
-                ha='center',
-                va='center',
-                fontsize=9,
-                color='#F7F8F9'
-            )
+            ax.text(pos.x, pos.y, str(self.ids[i]),
+                    ha="center", va="center", fontsize=9)
 
         # Centre of Mass
         total_weight = sum(self.weights)
@@ -252,11 +236,7 @@ class Individual:
             cm_x = sum(self.weights[i] * positions[i].x for i in range(len(self.weights))) / total_weight
             cm_y = sum(self.weights[i] * positions[i].y for i in range(len(self.weights))) / total_weight
 
-            ax.plot(cm_x, cm_y, 'x',
-                    color='#F4BA02',
-                    markersize=12,
-                    markeredgewidth=3,
-                    label='Centre of Mass')
+            ax.plot(cm_x, cm_y, "rx", markersize=10, label="Centre of Mass")
 
             # CM safe zone
             ax.add_patch(
@@ -264,47 +244,24 @@ class Individual:
                     (0.2 * container.width, 0.2 * container.depth),
                     0.6 * container.width,
                     0.6 * container.depth,
-                    fill=False,
-                    edgecolor='red',
-                    linestyle=':',
-                    linewidth=11.5,
-                    facecolor='none',
-                    label='CM Safe Zone'
+                    linestyle="--",
+                    linewidth=1,
+                    edgecolor="red",
+                    facecolor="none",
+                    label="CM Safe Zone"
                 )
             )
 
-        # Axes & styling
-        ax.set_aspect('equal')
+        # Aesthetics
+        ax.set_xlim(0, container.width)
+        ax.set_ylim(0, container.depth)
+        ax.set_aspect("equal")
+        ax.set_title(f"Fitness = {self.fitness:.2f}")
+        ax.set_xlabel("Width")
+        ax.set_ylabel("Depth")
+        ax.legend(loc="upper right")
 
-        margin_x = container.width * 0.15
-        margin_y = container.depth * 0.15
-        ax.set_xlim(-margin_x, container.width + margin_x)
-        ax.set_ylim(-margin_y, container.depth + margin_y)
-
-        ax.grid(True, alpha=0.3, color='black')
-        ax.set_facecolor('none')
-        fig.patch.set_facecolor('none')
-
-        ax.tick_params(colors='#F7F8F9')
-        for spine in ax.spines.values():
-            spine.set_color('#F7F8F9')
-
-        ax.set_title(
-            f"{title}\nFitness: {self.fitness:.2f}",
-            color='black',
-            fontsize=14,
-            pad=20,
-            weight='bold'
-        )
-
-        ax.legend(
-            loc='upper right',
-            facecolor='white',
-            edgecolor='black',
-            labelcolor='#F7F8F9',
-            framealpha=0.9
-        )
-
+        plt.tight_layout()
         plt.show()
 
 class Population:
