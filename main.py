@@ -88,6 +88,10 @@ class Individual:
                         candidate = Vector2(existing_pos.x + dx, existing_pos.y + dy)
                         candidate_positions.append(candidate)
 
+            random.seed(42)
+            # Shuffle candidates to avoid bias
+            random.shuffle(candidate_positions)
+
             # Try candidates in order
             for pos in candidate_positions:
                 if self.is_position_feasible(pos, radius, i, radii, container):
