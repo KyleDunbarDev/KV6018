@@ -31,7 +31,8 @@ class Individual:
 
     def calculate_fitness(self, container: Container) -> float:
         """
-        Calculate fitness as a numeric value in respect to a given container
+        Calculate fitness as a numeric value in respect to a given container.
+        First places cylinders and then calls calculate_penalties() to return a score
 
         Args:
             container: A Container with width, depth and max_weight
@@ -109,7 +110,7 @@ class Individual:
                 self.positions.append(fallback_pos)
 
         # Calculate fitness penalties
-        return self._calculate_penalties(radii, container)
+        return self.calculate_penalties(radii, container)
 
     def is_position_feasible(self, pos: Vector2, radius: float, current_idx: int, radii: List[float], container: Container) -> bool:
         """
@@ -131,7 +132,7 @@ class Individual:
 
         return True
 
-    def _calculate_penalties(self, radii: List[float], container: Container) -> float:
+    def calculate_penalties(self, radii: List[float], container: Container) -> float:
         """
         Calculate all penalty components.
         """
@@ -166,6 +167,24 @@ class Individual:
         # Penalty for weight capacity
         total_weight = sum(self.weights)
         penalty_capacity = max(0, total_weight - container.max_weight)**2
+
+
+        # Reward for cylinders being close to center
+        reward_centrality = 0
+        center_x = container.width / 2
+        center_y = container.depth / 2
+        max_possible_distance = math.sqrt((container.width/2)**2 + (container.depth/2)**2)
+
+        for i, pos in enumerate(self.positions):
+            # Calculate distance from center
+            distance_from_center = math.sqrt((pos.x - center_x)**2 + (pos.y - center_y)**2)
+            normalized_distance = distance_from_center / max_possible_distance
+
+            # Weighted reward based on cylinder weight (heavier cylinders get more reward for being centered)
+            weight_factor = self.weights[i] / max(self.weights) if max(self.weights) > 0 else 1
+            # Exponential reward: higher reward for being very close to center
+            reward = weight_factor * (1 - normalized_distance)**2 * 50
+            reward_centrality += reward
 
         # Penalty for center of mass outside central 60%
         penalty_CM = 0
@@ -210,10 +229,10 @@ class Individual:
             penalty_CM * 2.0
         )
 
-        self.fitness = -total_penalty + reward_CM
+        self.fitness = -total_penalty + reward_CM + reward_centrality
         return self.fitness
 
-    def _calculate_detailed_penalties(self, container: Container) -> dict:
+    def calculate_detailed_penalties(self, container: Container) -> dict:
         """
         Calculate and return detailed penalty breakdown.
         """
@@ -254,6 +273,25 @@ class Individual:
         # Capacity penalty
         total_weight = sum(self.weights)
         penalty_capacity = max(0, total_weight - container.max_weight)**2
+
+        # Reward for cylinders being close to centre (individual)
+        cylinder_center_reward = 0
+        center_x = container.width / 2
+        center_y = container.depth / 2
+        max_possible_distance = math.sqrt((container.width/2)**2 + (container.depth/2)**2)
+
+        individual_cylinder_rewards = []
+        for i, pos in enumerate(self.positions):
+            distance_from_center = math.sqrt((pos.x - center_x)**2 + (pos.y - center_y)**2)
+            normalized_distance = distance_from_center / max_possible_distance
+            weight_factor = self.weights[i] / max(self.weights) if max(self.weights) > 0 else 1
+            reward = weight_factor * (1 - normalized_distance)**2 * 50
+            cylinder_center_reward += reward
+            individual_cylinder_rewards.append({
+                'id': self.ids[i],
+                'distance_from_center': distance_from_center,
+                'reward': reward
+            })
 
         # Center of mass calculations
         center_mass_penalty = 0
@@ -296,6 +334,8 @@ class Individual:
             'capacity': penalty_capacity * 100.0,
             'center_mass_penalty': center_mass_penalty * 2.0,
             'center_mass_reward': center_mass_reward,
+            'cylinder_center_reward': cylinder_center_reward,
+            'individual_cylinder_rewards': individual_cylinder_rewards,
             'total_penalty': total_penalty,
             'center_mass': center_mass,
             'total_weight': total_weight
@@ -756,7 +796,7 @@ def evaluate_and_visualise_sequence(instance, id_sequence, show_visualization=Tr
     fitness = individual.calculate_fitness(instance.container)
 
     # Calculate detailed penalty breakdown
-    penalty_breakdown = individual._calculate_detailed_penalties(instance.container)
+    penalty_breakdown = individual.calculate_detailed_penalties(instance.container)
 
     # Print results
     print("=" * 70)
@@ -835,26 +875,26 @@ def main():
 
 
     # #! Option 2: Run all instances
-    # results = run_all_instances( mutation_rate=mutation_rate, memetic_attempts=memetic_mutation_attempts, population_size=population_size, max_generations=max_generations, verbose=True)
-    # print(f"\nOverall Success Rate: {results['success_rate']*100:.1f}%")
-    # print("\n" + "=" * 80)
-    # print("BEST SEQUENCES FOR ALL INSTANCES")
-    # print("=" * 80)
-    # for result in results['all_results']:
-    #     print(f"\n{result['name']} (Fitness: {result['final_fitness']:.4f}):")
-    #     print(f"  Sequence: {result['best_individual'].ids}")
-    #     status = "SUCCESS" if result['is_successful'] else "FAILED"
-    #     print(f"  Status: {status}")
+    results = run_all_instances( mutation_rate=mutation_rate, memetic_attempts=memetic_mutation_attempts, population_size=population_size, max_generations=max_generations, verbose=True)
+    print(f"\nOverall Success Rate: {results['success_rate']*100:.1f}%")
+    print("\n" + "=" * 80)
+    print("BEST SEQUENCES FOR ALL INSTANCES")
+    print("=" * 80)
+    for result in results['all_results']:
+        print(f"\n{result['name']} (Fitness: {result['final_fitness']:.4f}):")
+        print(f"  Sequence: {result['best_individual'].ids}")
+        status = "SUCCESS" if result['is_successful'] else "FAILED"
+        print(f"  Status: {status}")
 
 
 
-    #! Option 3: Test specific sequences
-    print("\nOption 3: Testing specific sequences")
-    basic_instances = container_instances.create_basic_instances()
-    instance = basic_instances[2]  # Use the first basic instance
-    # Test a specific sequence
-    sequence = [1, 2, 3, 4, 5]  # NOTE: Ensure ids used are present in instance
-    result = evaluate_and_visualise_sequence(instance, sequence, show_visualization=True)
+    # #! Option 3: Test specific sequences
+    # print("\nOption 3: Testing specific sequences")
+    # basic_instances = container_instances.create_basic_instances()
+    # instance = basic_instances[2]  # Use the first basic instance
+    # # Test a specific sequence
+    # sequence = [1, 2, 3, 4, 5]  # NOTE: Ensure ids used are present in instance
+    # result = evaluate_and_visualise_sequence(instance, sequence, show_visualization=True)
 
 if __name__ == "__main__":
     main()
