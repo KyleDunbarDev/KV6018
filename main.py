@@ -77,8 +77,16 @@ class Individual:
             # 2. Are along the current "frontier" of placed cylinders
             else:
                 # Generate grid of candidate positions
-                for y in np.arange(radius, container.depth - radius, grid_step):
-                    for x in np.arange(radius, container.width - radius, grid_step):
+                for x in np.arange(radius, container.width - radius, grid_step):
+                    min_y = radius
+
+                    # Enforce loading order frontier
+                    for j, prev_pos in enumerate(self.positions):
+                        prev_radius = radii[j]
+                        if abs(x - prev_pos.x) < radius + prev_radius:
+                            min_y = max(min_y, prev_pos.y)
+
+                    for y in np.arange(min_y, container.depth - radius, grid_step):
                         candidate_positions.append(Vector2(x, y))
 
                 # Also try positions tangent to already placed cylinders
@@ -129,10 +137,30 @@ class Individual:
             existing_radius = radii[j]
             distance = math.sqrt((pos.x - existing_pos.x)**2 +
                                 (pos.y - existing_pos.y)**2)
-            if distance < (radius + existing_radius - 1e-6):  # Small tolerance
+            if distance < (radius + existing_radius - 1e-6):  # Small tolerance for floating point inaccuracy
                 return False
 
+        # Check if violates loading order
+        if self.violates_loading_order(pos, radius, current_idx, radii):
+            return False
+
         return True
+
+
+    def violates_loading_order(self, pos, radius, current_idx, radii) -> bool:
+        """
+        Returns True if placing at pos violates loading order
+        """
+        for j in range(current_idx):
+            prev_pos = self.positions[j]
+            prev_radius = radii[j]
+
+            # Check x-range overlap
+            if abs(pos.x - prev_pos.x) < (radius + prev_radius):
+                # New cylinder is below an already placed one
+                if pos.y < prev_pos.y - 1e-6:
+                    return True
+        return False
 
     def calculate_penalties(self, radii: List[float], container: Container) -> float:
         """
@@ -469,9 +497,9 @@ class Individual:
         # Build title
         if hasattr(self, 'ids'):
             sequence_str = str(self.ids)
-            if len(self.ids) > 10:
+            if len(self.ids) > 20:
                 # Truncate long sequences
-                sequence_str = str(self.ids[:10]) + "..."
+                sequence_str = str(self.ids[:20]) + "..."
 
             full_title = f"{title}\nFitness: {self.fitness:.2f}\nSequence: {sequence_str}"
         else:
@@ -938,7 +966,7 @@ def main():
 
     #! Option 1: Run single given instance
     # Choose instance
-    instance = challenging_instances[3]
+    instance = challenging_instances[1]
     result = run_single_instance(instance=instance, mutation_rate=mutation_rate, population_size=population_size, max_generations=max_generations, print_interval=20, draw_result=True)
     print(f"\nFinal fitness: {result['final_stats']['best']:.4f}")
     print(f"Best sequence (cylinder IDs): {result['best_individual'].ids}")
@@ -966,7 +994,7 @@ def main():
     # # Choose instance
     # instance = challenging_instances[3]
     # # Input sequence to test
-    # sequence = [1, 9, 6, 2, 10, 7, 3, 4, 8, 5]  # NOTE: Ensure ids used are present in instance
+    # sequence = [6, 2, 1, 8, 5, 7, 10, 4, 9, 3]  # NOTE: Ensure ids used are present in instance
     # print("\nOption 3: Testing specific sequences")
     # result = evaluate_and_visualise_sequence(instance, sequence, show_visualization=True)
 
