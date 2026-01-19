@@ -171,24 +171,24 @@ class Individual:
         penalty_capacity = max(0, total_weight - container.max_weight)**2
 
 
-        # Reward for cylinders being close to center
+        # Reward for cylinders being close to centre
         reward_centrality = 0
-        center_x = container.width / 2
-        center_y = container.depth / 2
+        centre_x = container.width / 2
+        centre_y = container.depth / 2
         max_possible_distance = math.sqrt((container.width/2)**2 + (container.depth/2)**2)
 
         for i, pos in enumerate(self.positions):
-            # Calculate distance from center
-            distance_from_center = math.sqrt((pos.x - center_x)**2 + (pos.y - center_y)**2)
-            normalized_distance = distance_from_center / max_possible_distance
+            # Calculate distance from centre
+            distance_from_centre = math.sqrt((pos.x - centre_x)**2 + (pos.y - centre_y)**2)
+            normalized_distance = distance_from_centre / max_possible_distance
 
-            # Weighted reward based on cylinder weight (heavier cylinders get more reward for being centered)
+            # Weighted reward based on cylinder weight (heavier cylinders get more reward for being centreed)
             weight_factor = self.weights[i] / max(self.weights) if max(self.weights) > 0 else 1
-            # Exponential reward: higher reward for being very close to center
+            # Exponential reward: higher reward for being very close to centre
             reward = weight_factor * (1 - normalized_distance)**2 * 50
             reward_centrality += reward
 
-        # Penalty for center of mass outside central 60%
+        # Penalty for centre of mass outside central 60%
         penalty_CM = 0
         reward_CM = 0
 
@@ -196,15 +196,15 @@ class Individual:
             cm_x = sum(self.weights[i] * self.positions[i].x for i in range(n)) / total_weight
             cm_y = sum(self.weights[i] * self.positions[i].y for i in range(n)) / total_weight
 
-            # Distance from center (normalised)
+            # Distance from centre (normalised)
             centre_x = container.width/2
             centre_y = container.depth/2
-            distance_from_center_x = abs(cm_x - centre_x) / (container.width / 2)
-            distance_from_center_y = abs(cm_y - centre_y) / (container.depth / 2)
+            distance_from_centre_x = abs(cm_x - centre_x) / (container.width / 2)
+            distance_from_centre_y = abs(cm_y - centre_y) / (container.depth / 2)
             # Reward for being close to centre
-            reward_CM = 100 * (1 - distance_from_center_x) * (1 - distance_from_center_y)
+            reward_CM = 100 * (1 - distance_from_centre_x) * (1 - distance_from_centre_y)
 
-            # Center should be within 20% to 80% of container dimensions
+            # centre should be within 20% to 80% of container dimensions
             if cm_x < 0.2 * container.width:
                 penalty_CM += (0.2 * container.width - cm_x)**2
             if cm_x > 0.8 * container.width:
@@ -222,13 +222,36 @@ class Individual:
             penalty_CM = 0
             reward_CM = 0
 
+        # Penalty for loading order violation
+        penalty_order = 0
+        for i, cyl in enumerate(self.cylinders):
+            for j, cyl in enumerate (self.cylinders):
+                if i == j:
+                    continue
+                # Check if placed before
+                if i < j:
+                    continue
+                else: # If placed after, check could have been loaded without conflict according to loading order
+                    pos_i = self.positions[i]
+                    pos_j = self.positions[j]
+                    radius_i = radii[i]
+                    radius_j = radii[j]
+
+                    # If lower, check if x-ranges overlap
+                    if pos_i.y < pos_j.y:
+                        x_dist = abs(pos_i.x - pos_j.x)
+
+                        if x_dist < radius_i + radius_j:
+                            # Cylinder i is below j and their x-ranges overlap
+                            penalty_order += 5
 
         # Total penalty (negative for fitness maximization)
         total_penalty = (
             penalty_overlap * 10.0 +
             penalty_bounds * 5.0 +
             penalty_capacity * 100.0 +
-            penalty_CM * 2.0
+            penalty_CM * 2.0 +
+            penalty_order * 10.0
         )
 
         self.fitness = -total_penalty + reward_CM + reward_centrality
@@ -277,69 +300,94 @@ class Individual:
         penalty_capacity = max(0, total_weight - container.max_weight)**2
 
         # Reward for cylinders being close to centre (individual)
-        cylinder_center_reward = 0
-        center_x = container.width / 2
-        center_y = container.depth / 2
+        cylinder_centre_reward = 0
+        centre_x = container.width / 2
+        centre_y = container.depth / 2
         max_possible_distance = math.sqrt((container.width/2)**2 + (container.depth/2)**2)
 
         individual_cylinder_rewards = []
         for i, pos in enumerate(self.positions):
-            distance_from_center = math.sqrt((pos.x - center_x)**2 + (pos.y - center_y)**2)
-            normalized_distance = distance_from_center / max_possible_distance
+            distance_from_centre = math.sqrt((pos.x - centre_x)**2 + (pos.y - centre_y)**2)
+            normalized_distance = distance_from_centre / max_possible_distance
             weight_factor = self.weights[i] / max(self.weights) if max(self.weights) > 0 else 1
             reward = weight_factor * (1 - normalized_distance)**2 * 50
-            cylinder_center_reward += reward
+            cylinder_centre_reward += reward
             individual_cylinder_rewards.append({
                 'id': self.ids[i],
-                'distance_from_center': distance_from_center,
+                'distance_from_centre': distance_from_centre,
                 'reward': reward
             })
 
-        # Center of mass calculations
-        center_mass_penalty = 0
-        center_mass_reward = 0
-        center_mass = None
+        # centre of mass calculations
+        centre_mass_penalty = 0
+        centre_mass_reward = 0
+        centre_mass = None
 
         if total_weight > 0:
             cm_x = sum(self.weights[i] * self.positions[i].x for i in range(n)) / total_weight
             cm_y = sum(self.weights[i] * self.positions[i].y for i in range(n)) / total_weight
-            center_mass = (cm_x, cm_y)
+            centre_mass = (cm_x, cm_y)
 
             # Penalty for being outside safe zone (20%-80%)
             if cm_x < 0.2 * container.width:
-                center_mass_penalty += (0.2 * container.width - cm_x)**2
+                centre_mass_penalty += (0.2 * container.width - cm_x)**2
             if cm_x > 0.8 * container.width:
-                center_mass_penalty += (cm_x - 0.8 * container.width)**2
+                centre_mass_penalty += (cm_x - 0.8 * container.width)**2
             if cm_y < 0.2 * container.depth:
-                center_mass_penalty += (0.2 * container.depth - cm_y)**2
+                centre_mass_penalty += (0.2 * container.depth - cm_y)**2
             if cm_y > 0.8 * container.depth:
-                center_mass_penalty += (cm_y - 0.8 * container.depth)**2
+                centre_mass_penalty += (cm_y - 0.8 * container.depth)**2
 
-            # Reward for being close to center
+            # Reward for being close to centre
             target_x = container.width / 2
             target_y = container.depth / 2
-            distance_from_center = math.sqrt((cm_x - target_x)**2 + (cm_y - target_y)**2)
+            distance_from_centre = math.sqrt((cm_x - target_x)**2 + (cm_y - target_y)**2)
             max_distance = math.sqrt((container.width/2)**2 + (container.depth/2)**2)
-            center_mass_reward = 100 * (1 - distance_from_center / max_distance)
+            centre_mass_reward = 100 * (1 - distance_from_centre / max_distance)
+
+        # Penalty for loading order violation
+        penalty_order = 0
+        for i, cyl in enumerate(self.cylinders):
+            for j, cyl in enumerate (self.cylinders):
+                if i == j:
+                    continue
+                # Check if placed before
+                if i < j:
+                    continue
+                else: # If placed after, check could have been loaded without conflict according to loading order
+                    pos_i = self.positions[i]
+                    pos_j = self.positions[j]
+                    radius_i = radii[i]
+                    radius_j = radii[j]
+
+                    # If lower, check if x-ranges overlap
+                    if pos_i.y < pos_j.y:
+                        x_dist = abs(pos_i.x - pos_j.x)
+
+                        if x_dist < radius_i + radius_j:
+                            # Cylinder i is below j and their x-ranges overlap
+                            penalty_order += 5
 
         # Total weighted penalties
         total_penalty = (
             penalty_overlap * 10.0 +
             penalty_bounds * 5.0 +
             penalty_capacity * 100.0 +
-            center_mass_penalty * 2.0
+            centre_mass_penalty * 2.0 +
+            penalty_order * 10.0
         )
 
         return {
             'overlap': penalty_overlap * 10.0,
             'boundary': penalty_bounds * 5.0,
             'capacity': penalty_capacity * 100.0,
-            'center_mass_penalty': center_mass_penalty * 2.0,
-            'center_mass_reward': center_mass_reward,
-            'cylinder_center_reward': cylinder_center_reward,
+            'centre_mass_penalty': centre_mass_penalty * 2.0,
+            'order_penalty': penalty_order * 10.0,
+            'centre_mass_reward': centre_mass_reward,
+            'cylinder_centre_reward': cylinder_centre_reward,
             'individual_cylinder_rewards': individual_cylinder_rewards,
             'total_penalty': total_penalty,
-            'center_mass': center_mass,
+            'centre_mass': centre_mass,
             'total_weight': total_weight
         }
 
@@ -395,14 +443,14 @@ class Individual:
             ax.text(pos.x, pos.y, f"{self.ids[i]}\n{self.weights[i]}kg",
                    ha="center", va="center", fontsize=8, fontweight='bold')
 
-        # Draw center of mass and safe zone
+        # Draw centre of mass and safe zone
         total_weight = sum(self.weights)
         if total_weight > 0:
             cm_x = sum(self.weights[i] * self.positions[i].x for i in range(len(self.weights))) / total_weight
             cm_y = sum(self.weights[i] * self.positions[i].y for i in range(len(self.weights))) / total_weight
 
-            # Center of mass marker
-            ax.plot(cm_x, cm_y, "rx", markersize=12, markeredgewidth=2, label="Center of Mass")
+            # centre of mass marker
+            ax.plot(cm_x, cm_y, "rx", markersize=12, markeredgewidth=2, label="centre of Mass")
 
             # Safe zone (central 60%)
             safe_zone = patches.Rectangle(
@@ -620,6 +668,7 @@ def run_single_instance(instance, mutation_rate=0.01, population_size=200, max_g
 
         if print_interval > 0 and gen % print_interval == 0:
             print(f"------Generation {gen}------")
+            print(f"    Pop size: {population.pop_size}")
             population.print_stats()
 
     # Get best solution
@@ -822,9 +871,22 @@ def evaluate_and_visualise_sequence(instance, id_sequence, show_visualization=Tr
     print(f"  Overlap penalty:      {penalty_breakdown['overlap']:.4f}")
     print(f"  Boundary penalty:     {penalty_breakdown['boundary']:.4f}")
     print(f"  Capacity penalty:     {penalty_breakdown['capacity']:.4f}")
-    print(f"  Center of Mass penalty: {penalty_breakdown['center_mass_penalty']:.4f}")
-    print(f"  Center of Mass reward:  {penalty_breakdown['center_mass_reward']:.4f}")
+    print(f"  Centre of Mass penalty: {penalty_breakdown['centre_mass_penalty']:.4f}")
+    print(f"  Loading Order penalty: {penalty_breakdown['order_penalty']:.4f}")
+    print(f"  Centre of Mass reward:  {penalty_breakdown['centre_mass_reward']:.4f}")
+    print(f"  Cylinder Centrality reward:  {penalty_breakdown['cylinder_centre_reward']:.4f}")
     print(f"  Total penalty:        {penalty_breakdown['total_penalty']:.4f}")
+    # 'overlap': penalty_overlap * 10.0,
+    # 'boundary': penalty_bounds * 5.0,
+    # 'capacity': penalty_capacity * 100.0,
+    # 'centre_mass_penalty': centre_mass_penalty * 2.0,
+    # 'order_penalty': penalty_order * 10.0,
+    # 'centre_mass_reward': centre_mass_reward,
+    # 'cylinder_centre_reward': cylinder_centre_reward,
+    # 'individual_cylinder_rewards': individual_cylinder_rewards,
+    # 'total_penalty': total_penalty,
+    # 'centre_mass': centre_mass,
+    # 'total_weight': total_weight
 
     # Print placement information
     print("\nPlacement Details:")
@@ -837,12 +899,12 @@ def evaluate_and_visualise_sequence(instance, id_sequence, show_visualization=Tr
         else:
             print(f"{cyl.id:<4} {cyl.diameter:<8.2f} {cyl.weight:<8.2f} {'N/A':<8} {'N/A':<8}")
 
-    # Show center of mass information
-    if penalty_breakdown['center_mass'] is not None:
-        cm_x, cm_y = penalty_breakdown['center_mass']
-        print(f"\nCenter of Mass: ({cm_x:.2f}, {cm_y:.2f})")
-        print(f"Container Center: ({instance.container.width/2:.2f}, {instance.container.depth/2:.2f})")
-        print(f"Distance from center: {math.sqrt((cm_x - instance.container.width/2)**2 + (cm_y - instance.container.depth/2)**2):.2f}")
+    # Show centre of mass information
+    if penalty_breakdown['centre_mass'] is not None:
+        cm_x, cm_y = penalty_breakdown['centre_mass']
+        print(f"\ncentre of Mass: ({cm_x:.2f}, {cm_y:.2f})")
+        print(f"Container centre: ({instance.container.width/2:.2f}, {instance.container.depth/2:.2f})")
+        print(f"Distance from centre: {math.sqrt((cm_x - instance.container.width/2)**2 + (cm_y - instance.container.depth/2)**2):.2f}")
 
     # Total weight check
     total_weight = sum(cyl.weight for cyl in individual.cylinders)
@@ -862,7 +924,7 @@ def evaluate_and_visualise_sequence(instance, id_sequence, show_visualization=Tr
     }
 
 def main():
-    mutation_rate = 1
+    mutation_rate = 0.04
     population_size = 200
     max_generations = 200
 
@@ -871,12 +933,12 @@ def main():
     # by commenting and uncommenting the respective options
 
 
+    basic_instances: List[Instance] = container_instances.create_basic_instances()
+    challenging_instances: List[Instance] = container_instances.create_challenging_instances()
 
     #! Option 1: Run single given instance
     # Choose instance
-    # instance: Instance = container_instances.create_basic_instances()[0]
-    instance: Instance = container_instances.create_challenging_instances()[3]
-
+    instance = challenging_instances[3]
     result = run_single_instance(instance=instance, mutation_rate=mutation_rate, population_size=population_size, max_generations=max_generations, print_interval=20, draw_result=True)
     print(f"\nFinal fitness: {result['final_stats']['best']:.4f}")
     print(f"Best sequence (cylinder IDs): {result['best_individual'].ids}")
@@ -901,11 +963,11 @@ def main():
 
 
     # #! Option 3: Test specific sequences
+    # # Choose instance
+    # instance = challenging_instances[3]
+    # # Input sequence to test
+    # sequence = [1, 9, 6, 2, 10, 7, 3, 4, 8, 5]  # NOTE: Ensure ids used are present in instance
     # print("\nOption 3: Testing specific sequences")
-    # basic_instances = container_instances.create_basic_instances()
-    # instance = basic_instances[2]  # Use the first basic instance
-    # # Test a specific sequence
-    # sequence = [1, 2, 3, 4, 5]  # NOTE: Ensure ids used are present in instance
     # result = evaluate_and_visualise_sequence(instance, sequence, show_visualization=True)
 
 if __name__ == "__main__":
