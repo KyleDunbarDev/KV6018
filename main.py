@@ -31,6 +31,150 @@ class Individual:
         self.fitness = 0
         self.positions = [] # Placement cache
 
+
+    def place_cylinders(self, radii: List[float], container: Container):
+        """
+        Places cylinders memetically while enforcing loading order.
+
+        Args:
+            radii: A list of cylinder's radii
+        """
+
+        fpt = 1e-6 # Floating point tolerance
+        max_candidates = 80
+        x_samples = 20
+        y_samples = 4
+        max_slack_ratio = 0.4   # Fraction of container depth allowed as vertical slack
+
+        self.positions = []
+        n = len(radii)
+
+        # Centre of mass tracking
+        total_weight = 0.0
+        com_y = 0.0
+        cx = container.width / 2
+        target_y = container.depth / 2
+
+        for i in range(n):
+            radius = radii[i]
+            weight = self.cylinders[i].weight if hasattr(self, "cylinders") else 1.0
+            candidates = []
+
+            fill_ratio = i / n
+            max_slack = max_slack_ratio * (1.0 - fill_ratio) * container.depth # Slack shrinks as container fills
+
+            # 1. Frontier-based x sampling (loading-order aware)
+            for x in np.linspace(radius, container.width - radius, x_samples):
+                # Loading-order frontier
+                min_y = radius
+                for j in range(i):
+                    prev = self.positions[j]
+                    prev_r = radii[j]
+                    if abs(x - prev.x) < radius + prev_r:
+                        min_y = max(min_y, prev.y)
+
+                if min_y + radius > container.depth:
+                    continue
+
+                y_low = min_y
+                y_high = min(container.depth - radius, min_y + max_slack)
+
+                for y in np.linspace(y_low, y_high, y_samples):
+                    candidates.append(Vector2(x, y))
+                    if len(candidates) >= max_candidates:
+                        break
+                if len(candidates) >= max_candidates:
+                    break
+
+            # 2. Tangent candidates around existing cylinders
+            for j in range(i):
+                prev = self.positions[j]
+                prev_r = radii[j]
+
+                for angle in np.linspace(0, 2 * math.pi, 10, endpoint=False):
+                    cx_t = prev.x + math.cos(angle) * (radius + prev_r)
+                    cy_t = prev.y + math.sin(angle) * (radius + prev_r)
+
+                    if (cx_t - radius < 0 or cx_t + radius > container.width or
+                        cy_t - radius < 0 or cy_t + radius > container.depth):
+                        continue
+
+                    candidates.append(Vector2(cx_t, cy_t))
+                    if len(candidates) >= max_candidates:
+                        break
+                if len(candidates) >= max_candidates:
+                    break
+
+            # 3. Feasibilty + balance aware selection
+            best_pos = None
+            best_score = float("inf")
+            best_new_com_y = 0.0
+            best_new_total_weight = 0.0
+
+            for pos in candidates:
+                feasible = True
+
+                for j in range(i):
+                    prev = self.positions[j]
+                    prev_r = radii[j]
+
+                    dx = pos.x - prev.x
+                    dy = pos.y - prev.y
+
+                    # Overlap constraint
+                    if dx * dx + dy * dy < (radius + prev_r) ** 2 - fpt:
+                        feasible = False
+                        break
+
+                    # Loading order constraint
+                    if abs(dx) < radius + prev_r and dy < -fpt:
+                        feasible = False
+                        break
+
+                if not feasible:
+                    continue
+
+                # Predict centre of mass after placement
+                new_total_weight = total_weight + weight
+                new_com_y = (
+                    (com_y * total_weight + weight * pos.y) / new_total_weight
+                    if total_weight > 0
+                    else pos.y
+                )
+
+                # Balance-aware scoring
+                score = (
+                    2.0 * abs(pos.x - cx) +                 # horizontal balance
+                    3.0 * abs(new_com_y - target_y) +       # CoM correction
+                    0.5 * pos.y                              # mild compactness
+                )
+
+                if score < best_score:
+                    best_score = score
+                    best_pos = pos
+                    best_new_com_y = new_com_y
+                    best_new_total_weight = new_total_weight
+
+            # 4. Place best candidate or fallback
+            if best_pos is not None:
+                self.positions.append(best_pos)
+                total_weight = best_new_total_weight
+                com_y = best_new_com_y
+            else:
+                # Fallback placement (penalised naturally)
+                fallback = Vector2(
+                    container.width / 2 + random.uniform(-1, 1),
+                    container.depth / 2 + random.uniform(-1, 1)
+                )
+                self.positions.append(fallback)
+                total_weight += weight
+                com_y = (
+                    (com_y * (total_weight - weight) + weight * fallback.y) / total_weight
+                )
+
+        return self.positions
+
+
     def calculate_fitness(self, container: Container) -> float:
         """
         Calculate fitness as a numeric value in respect to a given container.
@@ -41,84 +185,10 @@ class Individual:
         Returns:
             Fitness value (float)
         """
-        # Reset positions
-        self.positions = []
         radii = [diameter/2 for diameter in self.diameters]
 
-        # Initialise feasible region (entire container minus boundaries)
-        feasible_region = {
-            'x_min': 0,
-            'x_max': container.width,
-            'y_min': 0,
-            'y_max': container.depth
-        }
-
-        # Try to place each cylinder in sequence
-        for i, cyl in enumerate(self.cylinders):
-            radius = radii[i]
-            placed = False
-
-            # Try multiple candidate positions for feasibility
-            candidate_positions = []
-
-            # Generate candidate positions based on loading from rear (y=0)
-            # Try positions along the rear wall first, then expand
-            grid_step = radius / 2  # Grid for candidate positions
-
-            # If first cylinder, try to place near rear wall
-            if i == 0:
-                # Start from rear (y = radius to avoid boundary violation)
-                for y_offset in [radius, radius*2, radius*3]:
-                    for x in np.arange(radius, container.width - radius, grid_step):
-                        candidate_positions.append(Vector2(x, y_offset))
-
-            # For subsequent cylinders, try positions that:
-            # 1. Are near already placed cylinders (to pack efficiently)
-            # 2. Are along the current "frontier" of placed cylinders
-            else:
-                # Generate grid of candidate positions
-                for x in np.arange(radius, container.width - radius, grid_step):
-                    min_y = radius
-
-                    # Enforce loading order frontier
-                    for j, prev_pos in enumerate(self.positions):
-                        prev_radius = radii[j]
-                        if abs(x - prev_pos.x) < radius + prev_radius:
-                            min_y = max(min_y, prev_pos.y)
-
-                    for y in np.arange(min_y, container.depth - radius, grid_step):
-                        candidate_positions.append(Vector2(x, y))
-
-                # Also try positions tangent to already placed cylinders
-                for j, existing_pos in enumerate(self.positions[:i]):
-                    existing_radius = radii[j]
-                    # Try positions around existing cylinder
-                    for angle in np.linspace(0, 2*math.pi, 16):
-                        dx = math.cos(angle) * (radius + existing_radius)
-                        dy = math.sin(angle) * (radius + existing_radius)
-                        candidate = Vector2(existing_pos.x + dx, existing_pos.y + dy)
-                        candidate_positions.append(candidate)
-
-            random.seed(42)
-            # Shuffle candidates to avoid bias
-            random.shuffle(candidate_positions)
-
-            # Try candidates in order
-            for pos in candidate_positions:
-                if self.is_position_feasible(pos, radius, i, radii, container):
-                    self.positions.append(pos)
-                    placed = True
-                    break
-
-            # If no feasible position found, use a fallback position with penalty
-            if not placed:
-                # Place at a default position (will incur heavy penalty)
-                fallback_pos = Vector2(
-                    container.width/2 + random.uniform(-1, 1),
-                    container.depth/2 + random.uniform(-1, 1)
-                )
-                self.positions.append(fallback_pos)
-
+        # Place cylinders
+        self.place_cylinders(radii, container)
         # Calculate fitness penalties
         return self.calculate_penalties(radii, container)
 
@@ -964,29 +1034,29 @@ def main():
     basic_instances: List[Instance] = container_instances.create_basic_instances()
     challenging_instances: List[Instance] = container_instances.create_challenging_instances()
 
-    #! Option 1: Run single given instance
-    # Choose instance
-    instance = challenging_instances[1]
-    result = run_single_instance(instance=instance, mutation_rate=mutation_rate, population_size=population_size, max_generations=max_generations, print_interval=20, draw_result=True)
-    print(f"\nFinal fitness: {result['final_stats']['best']:.4f}")
-    print(f"Best sequence (cylinder IDs): {result['best_individual'].ids}")
-    print(f"Best sequence (full details):")
-    for i, cyl in enumerate(result['best_individual'].cylinders):
-        print(f"  Position {i+1}: ID={cyl.id}, Diameter={cyl.diameter}, Weight={cyl.weight}")
+    # #! Option 1: Run single given instance
+    # # Choose instance
+    # instance = challenging_instances[1]
+    # result = run_single_instance(instance=instance, mutation_rate=mutation_rate, population_size=population_size, max_generations=max_generations, print_interval=20, draw_result=True)
+    # print(f"\nFinal fitness: {result['final_stats']['best']:.4f}")
+    # print(f"Best sequence (cylinder IDs): {result['best_individual'].ids}")
+    # print(f"Best sequence (full details):")
+    # for i, cyl in enumerate(result['best_individual'].cylinders):
+    #     print(f"  Position {i+1}: ID={cyl.id}, Diameter={cyl.diameter}, Weight={cyl.weight}")
 
 
 
-    # #! Option 2: Run all instances
-    # results = run_all_instances( mutation_rate=mutation_rate, population_size=population_size, max_generations=max_generations, verbose=True)
-    # print(f"\nOverall Success Rate: {results['success_rate']*100:.1f}%")
-    # print("\n" + "=" * 80)
-    # print("BEST SEQUENCES FOR ALL INSTANCES")
-    # print("=" * 80)
-    # for result in results['all_results']:
-    #     print(f"\n{result['name']} (Fitness: {result['final_fitness']:.4f}):")
-    #     print(f"  Sequence: {result['best_individual'].ids}")
-    #     status = "SUCCESS" if result['is_successful'] else "FAILED"
-    #     print(f"  Status: {status}")
+    #! Option 2: Run all instances
+    results = run_all_instances( mutation_rate=mutation_rate, population_size=population_size, max_generations=max_generations, verbose=True)
+    print(f"\nOverall Success Rate: {results['success_rate']*100:.1f}%")
+    print("\n" + "=" * 80)
+    print("BEST SEQUENCES FOR ALL INSTANCES")
+    print("=" * 80)
+    for result in results['all_results']:
+        print(f"\n{result['name']} (Fitness: {result['final_fitness']:.4f}):")
+        print(f"  Sequence: {result['best_individual'].ids}")
+        status = "SUCCESS" if result['is_successful'] else "FAILED"
+        print(f"  Status: {status}")
 
 
 
