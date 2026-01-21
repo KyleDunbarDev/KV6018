@@ -177,277 +177,140 @@ class Individual:
 
     def calculate_fitness(self, container: Container) -> float:
         """
-        Calculate fitness as a numeric value in respect to a given container.
-        First places cylinders and then calls calculate_penalties() to return a score
+        Gets the calculated fitness as a numeric value in respect to a given container.
+        Fitness is not comparable between differently n number cylinders as rewards are given per cylinder.
 
         Args:
             container: A Container with width, depth and max_weight
         Returns:
             Fitness value (float)
         """
-        radii = [diameter/2 for diameter in self.diameters]
+        return self.evaluate(container)["fitness"]
 
-        # Place cylinders
-        self.place_cylinders(radii, container)
-        # Calculate fitness penalties
-        return self.calculate_penalties(radii, container)
-
-
-    def calculate_penalties(self, radii: List[float], container: Container) -> float:
+    def evaluate(self, container: Container) -> Dict:
         """
-        Calculate all penalty components.
+        Calculates all penalty and reward components.
+        First places cylinders if not placed, and then evaluates all penalties and rewards.
+        Returns a dict of evaluated metrics
+
+        Args:
+            container: The container to evaluate self against with width, depth, and max_weight
+        Returns:
+            Dict of metrics:
+                "fitness": float,
+                "penalties": Dict,
+                "rewards": Dict,
+                "total_weight": float,
+                "centre_of_mass": Vector2,
+                "is_successful": bool,
         """
-        # Penalty for overlap
-        penalty_overlap = 0
-        n = len(self.cylinders)
-        for i in range(n):
-            for j in range(i + 1, n):
-                distance = math.sqrt(
-                    (self.positions[i].x - self.positions[j].x)**2 +
-                    (self.positions[i].y - self.positions[j].y)**2
-                )
-                min_distance = radii[i] + radii[j]
-                if distance < min_distance:
-                    overlap = min_distance - distance
-                    penalty_overlap += overlap**2
 
-        # Penalty for boundary violation
-        penalty_bounds = 0
-        for i, pos in enumerate(self.positions):
-            radius = radii[i]
-            # Check each boundary
-            if pos.x - radius < 0:
-                penalty_bounds += (radius - pos.x)**2
-            if pos.x + radius > container.width:
-                penalty_bounds += (pos.x + radius - container.width)**2
-            if pos.y - radius < 0:
-                penalty_bounds += (radius - pos.y)**2
-            if pos.y + radius > container.depth:
-                penalty_bounds += (pos.y + radius - container.depth)**2
-
-        # Penalty for weight capacity
-        total_weight = sum(self.weights)
-        penalty_capacity = max(0, total_weight - container.max_weight)**2
-
-
-        # Reward for cylinders being close to centre
-        reward_centrality = 0
-        centre_x = container.width / 2
-        centre_y = container.depth / 2
-        max_possible_distance = math.sqrt((container.width/2)**2 + (container.depth/2)**2)
-
-        for i, pos in enumerate(self.positions):
-            # Calculate distance from centre
-            distance_from_centre = math.sqrt((pos.x - centre_x)**2 + (pos.y - centre_y)**2)
-            normalized_distance = distance_from_centre / max_possible_distance
-
-            # Weighted reward based on cylinder weight (heavier cylinders get more reward for being centreed)
-            weight_factor = self.weights[i] / max(self.weights) if max(self.weights) > 0 else 1
-            # Exponential reward: higher reward for being very close to centre
-            reward = weight_factor * (1 - normalized_distance)**2 * 50
-            reward_centrality += reward
-
-        # Penalty for centre of mass outside central 60%
-        penalty_CM = 0
-        reward_CM = 0
-
-        if total_weight > 0:
-            cm_x = sum(self.weights[i] * self.positions[i].x for i in range(n)) / total_weight
-            cm_y = sum(self.weights[i] * self.positions[i].y for i in range(n)) / total_weight
-
-            # Distance from centre (normalised)
-            centre_x = container.width/2
-            centre_y = container.depth/2
-            distance_from_centre_x = abs(cm_x - centre_x) / (container.width / 2)
-            distance_from_centre_y = abs(cm_y - centre_y) / (container.depth / 2)
-            # Reward for being close to centre
-            reward_CM = 100 * (1 - distance_from_centre_x) * (1 - distance_from_centre_y)
-
-            # centre should be within 20% to 80% of container dimensions
-            if cm_x < 0.2 * container.width:
-                penalty_CM += (0.2 * container.width - cm_x)**2
-            if cm_x > 0.8 * container.width:
-                penalty_CM += (cm_x - 0.8 * container.width)**2
-            if cm_y < 0.2 * container.depth:
-                penalty_CM += (0.2 * container.depth - cm_y)**2
-            if cm_y > 0.8 * container.depth:
-                penalty_CM += (cm_y - 0.8 * container.depth)**2
-            # Reward for CM being close to centre
-            centre = Vector2(container.width/2, container.depth/2)
-            dist = math.sqrt((centre.x - cm_x)**2
-                + (centre.y - cm_y)**2 )
-            penalty_CM -= dist
-        else:
-            penalty_CM = 0
-            reward_CM = 0
-
-        # Penalty for loading order violation
-        penalty_order = 0
-        for i, cyl in enumerate(self.cylinders):
-            for j, cyl in enumerate (self.cylinders):
-                if i == j:
-                    continue
-                # Check if placed before
-                if i < j:
-                    continue
-                else: # If placed after, check could have been loaded without conflict according to loading order
-                    pos_i = self.positions[i]
-                    pos_j = self.positions[j]
-                    radius_i = radii[i]
-                    radius_j = radii[j]
-
-                    # If lower, check if x-ranges overlap
-                    if pos_i.y < pos_j.y:
-                        x_dist = abs(pos_i.x - pos_j.x)
-
-                        if x_dist < radius_i + radius_j:
-                            # Cylinder i is below j and their x-ranges overlap
-                            penalty_order += 5
-
-        # Total penalty (negative for fitness maximization)
-        total_penalty = (
-            penalty_overlap * 10.0 +
-            penalty_bounds * 5.0 +
-            penalty_capacity * 100.0 +
-            penalty_CM * 2.0 +
-            penalty_order * 10.0
-        )
-
-        self.fitness = -total_penalty + reward_CM + reward_centrality
-        return self.fitness
-
-    def calculate_detailed_penalties(self, container: Container) -> dict:
-        """
-        Calculate and return detailed penalty breakdown.
-        """
         if not self.positions:
-            self.calculate_fitness(container)
+            radii = [d / 2 for d in self.diameters]
+            self.place_cylinders(radii, container)
+        else:
+            radii = [d / 2 for d in self.diameters]
 
-        radii = [d/2 for d in self.diameters]
         n = len(self.cylinders)
 
-        # Initialise penalties
-        penalty_overlap = 0
-        penalty_bounds = 0
+        penalties = {
+            "overlap": 0.0,
+            "bounds": 0.0,
+            "capacity": 0.0,
+            "centre_of_mass": 0.0,
+            "loading_order": 0.0,
+        }
 
-        # Boundary penalties
-        for i, pos in enumerate(self.positions):
-            radius = radii[i]
-            if pos.x - radius < 0:
-                penalty_bounds += (radius - pos.x)**2
-            if pos.x + radius > container.width:
-                penalty_bounds += (pos.x + radius - container.width)**2
-            if pos.y - radius < 0:
-                penalty_bounds += (radius - pos.y)**2
-            if pos.y + radius > container.depth:
-                penalty_bounds += (pos.y + radius - container.depth)**2
+        rewards = {
+            "centre_mass_reward": 0.0,
+            "cylinder_centrality": 0.0,
+        }
 
-        # Overlap penalties
+        # Overlap + loading order
         for i in range(n):
             for j in range(i + 1, n):
-                distance = math.sqrt(
-                    (self.positions[i].x - self.positions[j].x)**2 +
-                    (self.positions[i].y - self.positions[j].y)**2
-                )
-                min_distance = radii[i] + radii[j]
-                if distance < min_distance:
-                    overlap = min_distance - distance
-                    penalty_overlap += overlap**2
+                dx = self.positions[i].x - self.positions[j].x
+                dy = self.positions[i].y - self.positions[j].y
+                dist = math.sqrt(dx * dx + dy * dy)
+                min_dist = radii[i] + radii[j]
 
-        # Capacity penalty
-        total_weight = sum(self.weights)
-        penalty_capacity = max(0, total_weight - container.max_weight)**2
+                if dist < min_dist:
+                    penalties["overlap"] += (min_dist - dist) ** 2
 
-        # Reward for cylinders being close to centre (individual)
-        cylinder_centre_reward = 0
-        centre_x = container.width / 2
-        centre_y = container.depth / 2
-        max_possible_distance = math.sqrt((container.width/2)**2 + (container.depth/2)**2)
+                # Loading order: later cylinder cannot block earlier one
+                if self.positions[i].y < self.positions[j].y:
+                    if abs(dx) < min_dist:
+                        penalties["loading_order"] += 1.0
 
-        individual_cylinder_rewards = []
+        # Boundary
         for i, pos in enumerate(self.positions):
-            distance_from_centre = math.sqrt((pos.x - centre_x)**2 + (pos.y - centre_y)**2)
-            normalized_distance = distance_from_centre / max_possible_distance
-            weight_factor = self.weights[i] / max(self.weights) if max(self.weights) > 0 else 1
-            reward = weight_factor * (1 - normalized_distance)**2 * 50
-            cylinder_centre_reward += reward
-            individual_cylinder_rewards.append({
-                'id': self.ids[i],
-                'distance_from_centre': distance_from_centre,
-                'reward': reward
-            })
+            r = radii[i]
+            if pos.x - r < 0:
+                penalties["bounds"] += (r - pos.x) ** 2
+            if pos.x + r > container.width:
+                penalties["bounds"] += (pos.x + r - container.width) ** 2
+            if pos.y - r < 0:
+                penalties["bounds"] += (r - pos.y) ** 2
+            if pos.y + r > container.depth:
+                penalties["bounds"] += (pos.y + r - container.depth) ** 2
 
-        # centre of mass calculations
-        centre_mass_penalty = 0
-        centre_mass_reward = 0
-        centre_mass = None
+        # Weight capacity
+        total_weight = sum(self.weights)
+        if total_weight > container.max_weight:
+            penalties["capacity"] = (total_weight - container.max_weight) ** 2
 
-        if total_weight > 0:
-            cm_x = sum(self.weights[i] * self.positions[i].x for i in range(n)) / total_weight
-            cm_y = sum(self.weights[i] * self.positions[i].y for i in range(n)) / total_weight
-            centre_mass = (cm_x, cm_y)
+        # Centre of mass
+        cm_x = sum(self.weights[i] * self.positions[i].x for i in range(n)) / total_weight
+        cm_y = sum(self.weights[i] * self.positions[i].y for i in range(n)) / total_weight
 
-            # Penalty for being outside safe zone (20%-80%)
-            if cm_x < 0.2 * container.width:
-                centre_mass_penalty += (0.2 * container.width - cm_x)**2
-            if cm_x > 0.8 * container.width:
-                centre_mass_penalty += (cm_x - 0.8 * container.width)**2
-            if cm_y < 0.2 * container.depth:
-                centre_mass_penalty += (0.2 * container.depth - cm_y)**2
-            if cm_y > 0.8 * container.depth:
-                centre_mass_penalty += (cm_y - 0.8 * container.depth)**2
+        if not (0.2 * container.width <= cm_x <= 0.8 * container.width):
+            penalties["centre_of_mass"] += abs(cm_x - container.width / 2) ** 2
+        if not (0.2 * container.depth <= cm_y <= 0.8 * container.depth):
+            penalties["centre_of_mass"] += abs(cm_y - container.depth / 2) ** 2
 
-            # Reward for being close to centre
-            target_x = container.width / 2
-            target_y = container.depth / 2
-            distance_from_centre = math.sqrt((cm_x - target_x)**2 + (cm_y - target_y)**2)
-            max_distance = math.sqrt((container.width/2)**2 + (container.depth/2)**2)
-            centre_mass_reward = 100 * (1 - distance_from_centre / max_distance)
-
-        # Penalty for loading order violation
-        penalty_order = 0
-        for i, cyl in enumerate(self.cylinders):
-            for j, cyl in enumerate (self.cylinders):
-                if i == j:
-                    continue
-                # Check if placed before
-                if i < j:
-                    continue
-                else: # If placed after, check could have been loaded without conflict according to loading order
-                    pos_i = self.positions[i]
-                    pos_j = self.positions[j]
-                    radius_i = radii[i]
-                    radius_j = radii[j]
-
-                    # If lower, check if x-ranges overlap
-                    if pos_i.y < pos_j.y:
-                        x_dist = abs(pos_i.x - pos_j.x)
-
-                        if x_dist < radius_i + radius_j:
-                            # Cylinder i is below j and their x-ranges overlap
-                            penalty_order += 5
-
-        # Total weighted penalties
-        total_penalty = (
-            penalty_overlap * 10.0 +
-            penalty_bounds * 5.0 +
-            penalty_capacity * 100.0 +
-            centre_mass_penalty * 2.0 +
-            penalty_order * 10.0
+        # Reward for CM proximity
+        dist_cm = math.sqrt(
+            (cm_x - container.width / 2) ** 2 +
+            (cm_y - container.depth / 2) ** 2
         )
+        rewards["centre_mass_reward"] = max(0.0, 100.0 - dist_cm)
+
+        # Cylinder centrality
+        max_dist = math.sqrt(
+            (container.width / 2) ** 2 +
+            (container.depth / 2) ** 2
+        )
+
+        for i, pos in enumerate(self.positions):
+            d = math.sqrt(
+                (pos.x - container.width / 2) ** 2 +
+                (pos.y - container.depth / 2) ** 2
+            )
+            rewards["cylinder_centrality"] += (
+                self.weights[i] / max(self.weights)
+            ) * (1 - d / max_dist) ** 2 * 50
+
+        # Results
+        weighted_penalty = (
+            penalties["overlap"] * 10.0 +
+            penalties["bounds"] * 5.0 +
+            penalties["capacity"] * 100.0 +
+            penalties["centre_of_mass"] * 2.0 +
+            penalties["loading_order"] * 10.0
+        )
+
+        fitness = rewards["centre_mass_reward"] + rewards["cylinder_centrality"] - weighted_penalty
+        self.fitness = fitness
+
+        is_successful = all(p == 0 for p in penalties.values())
 
         return {
-            'overlap': penalty_overlap * 10.0,
-            'boundary': penalty_bounds * 5.0,
-            'capacity': penalty_capacity * 100.0,
-            'centre_mass_penalty': centre_mass_penalty * 2.0,
-            'order_penalty': penalty_order * 10.0,
-            'centre_mass_reward': centre_mass_reward,
-            'cylinder_centre_reward': cylinder_centre_reward,
-            'individual_cylinder_rewards': individual_cylinder_rewards,
-            'total_penalty': total_penalty,
-            'centre_mass': centre_mass,
-            'total_weight': total_weight
+            "fitness": fitness,
+            "penalties": penalties,
+            "rewards": rewards,
+            "total_weight": total_weight,
+            "centre_of_mass": (cm_x, cm_y),
+            "is_successful": is_successful,
         }
 
     def mutate(self, mutation_rate: float):
@@ -564,7 +427,7 @@ class Population:
 
         gene = self.cylinders.copy() # Copy to shuffle (shuffle shuffles in place)
 
-        self.individuals = []
+        self.individuals: List[Individual] = []
         for _ in range(pop_size):
             gene = self.cylinders.copy()
             random.shuffle(gene)
@@ -677,28 +540,36 @@ class Population:
     def get_stats(self):
         """
         Calculates population statistics.
-        Should be used after evaluating population.
 
         Returns:
-            Dictionary with 'best', 'average', 'worst' fitness values
+            Dictionary with 'best_fitness', 'avg_fitness', 'worst_fitness', 'num_successful', 'success_rate'
         """
-        fitnesses = [individual.fitness for individual in self.individuals]
-        return {
-            'best': max(fitnesses),
-            'average': sum(fitnesses) / len(fitnesses),
-            'worst': min(fitnesses)
+
+        stats = {
+            "best_fitness": -float("inf"),
+            "avg_fitness": 0.0,
+            "worst_fitness": float("inf"),
+            "num_successful": 0,
+            "success_rate": 0.0,
         }
 
-    def print_stats(self):
-        stats = self.get_stats()
+        total_fitness = 0.0
 
-        out = f"""
-            Best: {stats['best']}
-            Average: {stats['average']}
-            Worst: {stats['worst']}
-            """
+        for ind in self.individuals:
+            res = ind.evaluate(self.container)
+            f = res["fitness"]
 
-        print(out)
+            stats["best_fitness"] = max(stats["best_fitness"], f)
+            stats["worst_fitness"] = min(stats["worst_fitness"], f)
+            total_fitness += f
+
+            if res["is_successful"]:
+                stats["num_successful"] += 1
+
+        stats["avg_fitness"] = total_fitness / len(self.individuals)
+        stats["success_rate"] = stats["num_successful"] / len(self.individuals)
+
+        return stats
 
 
 def run_single_instance(instance, mutation_rate=0.01, population_size=200, max_generations=500, print_interval=20, draw_result=True):
@@ -715,7 +586,7 @@ def run_single_instance(instance, mutation_rate=0.01, population_size=200, max_g
         draw_result: If True, visualise the best solution
 
     Returns:
-        Dictionary containing the best individual and statistics
+        Dictionary containing
     """
     # Initialise population
     population = Population(population_size, instance.cylinders, instance.container)
@@ -725,22 +596,28 @@ def run_single_instance(instance, mutation_rate=0.01, population_size=200, max_g
     for gen in range(max_generations):
         population.evolve(mutation_rate)
 
-        if print_interval > 0 and gen % print_interval == 0:
-            print(f"------Generation {gen}------")
-            print(f"    Pop size: {population.pop_size}")
-            population.print_stats()
+        if print_interval and gen % print_interval == 0:
+            stats = population.get_stats()
+            print(f"[Gen {gen:4d}] "
+                    f"Best={stats['best_fitness']:.2f} | "
+                    f"Avg={stats['avg_fitness']:.2f} | "
+                    f"Success={stats['success_rate']*100:.1f}%")
 
     # Get best solution
     best = population.get_best_individual()
+    result = best.evaluate(instance.container)
+
+    print("\nFINAL RESULT")
+    print("-" * 50)
+    print(f"Fitness: {result['fitness']:.2f}")
+    print(f"Successful: {result['is_successful']}")
+    print(f"Penalties: {result['penalties']}")
+
     # Visualise
     if draw_result:
         best.draw(instance.container)
 
-    return {
-        'best_individual': best,
-        'final_stats': population.get_stats(),
-        'instance': instance
-    }
+    return result
 
 def run_all_instances(mutation_rate=0.01,population_size=200, max_generations=500, print_interval=50, verbose=True):
     """
@@ -754,137 +631,60 @@ def run_all_instances(mutation_rate=0.01,population_size=200, max_generations=50
         verbose: If True, prints progress during evolution
 
     Returns:
-        Dictionary containing results for each instance
+        Dict with 'results' (Dict as given by evaluate()) and 'success_rate' (float)
     """
     # Gather all instances
-    all_instances = []
-    basic = container_instances.create_basic_instances()
-    challenging = container_instances.create_challenging_instances()
-
-    all_instances.extend([("Basic", inst) for inst in basic])
-    all_instances.extend([("Challenging", inst) for inst in challenging])
+    instances = (
+        [("Basic", i) for i in container_instances.create_basic_instances()] +
+        [("Challenging", i) for i in container_instances.create_challenging_instances()]
+    )
 
     results = []
 
-    print("=" * 80)
-    print("RUNNING GENETIC ALGORITHM ON ALL INSTANCES")
-    print("=" * 80)
-    print(f"Parameters: pop_size={population_size}, generations={max_generations}")
-    print(f"            mutation_rate={mutation_rate}")
-    print("=" * 80)
-    print()
+    for category, instance in instances:
+        print("\n" + "=" * 80)
+        print(f"{instance.name} ({category})")
 
-    for category, instance in all_instances:
-        print(f"\n{'=' * 80}")
-        print(f"Instance: {instance.name} ({category})")
-        print(f"Container: {instance.container.width}m × {instance.container.depth}m, "
-              f"max weight: {instance.container.max_weight}kg")
-        print(f"Cylinders: {len(instance.cylinders)}")
-        print(f"{'=' * 80}")
-
-        # Initialise population
         population = Population(population_size, instance.cylinders, instance.container)
         population.evaluate_population()
 
-        initial_stats = population.get_stats()
-
-        # Evolution
         for gen in range(max_generations):
             population.evolve(mutation_rate)
 
-            if verbose and gen % print_interval == 0:
+            if gen % print_interval == 0:
                 stats = population.get_stats()
-                print(f"Generation {gen:4d}: Best={stats['best']:8.2f}, "
-                      f"Avg={stats['average']:8.2f}, Worst={stats['worst']:8.2f}")
+                print(f"Gen {gen:4d}: "
+                        f"Best={stats['best_fitness']:.2f}, "
+                        f"Success={stats['success_rate']*100:.1f}%")
 
-        # Final statistics
-        final_stats = population.get_stats()
-        best_individual = population.get_best_individual()
+        best = population.get_best_individual()
+        res = best.evaluate(instance.container)
 
-        # Determine success (fitness >= -0.01 is considered successful - small tolerance for numerical errors)
-        is_successful: bool = final_stats['best'] >= -0.01
+        print("\nFINAL")
+        print(f"Fitness: {res['fitness']:.2f}")
+        print(f"Successful: {res['is_successful']}")
+        print(f"Penalties: {res['penalties']}")
 
-        print(f"\n{'=' * 40}")
-        print(f"FINAL RESULTS:")
-        print(f"  Initial Best Fitness: {initial_stats['best']:.4f}")
-        print(f"  Final Best Fitness:   {final_stats['best']:.4f}")
-        print(f"  Final Avg Fitness:    {final_stats['average']:.4f}")
-        print(f"  Improvement:          {final_stats['best'] - initial_stats['best']:.4f}")
-        print(f"  Status:               {'SUCCESS' if is_successful else 'FAILED'}")
-        print(f"{'=' * 40}")
-
-        # Store results
         results.append({
-            'category': category,
-            'name': instance.name,
-            'instance': instance,
-            'best_individual': best_individual,
-            'initial_fitness': initial_stats['best'],
-            'final_fitness': final_stats['best'],
-            'avg_fitness': final_stats['average'],
-            'improvement': final_stats['best'] - initial_stats['best'],
-            'is_successful': is_successful,
-            'num_cylinders': len(instance.cylinders),
-            'container_area': instance.container.width * instance.container.depth
+            "instance": instance.name,
+            "category": category,
+            "fitness": res["fitness"],
+            "successful": res["is_successful"],
+            "penalties": res["penalties"],
+            "sequence": best.ids,
         })
 
-        # Draw the best solution
-        best_individual.draw(instance.container,
-                            title=f"{instance.name} - Fitness: {final_stats['best']:.2f}")
+        best.draw(instance.container,
+                    title=f"{instance.name} | Success={res['is_successful']}")
 
-    # Print summary report
-    print("\n\n" + "=" * 80)
-    print("SUMMARY REPORT - ALL INSTANCES")
-    print("=" * 80)
-
-    # Sort by success (successful first) then by fitness (descending)
-    sorted_results = sorted(results,
-                           key=lambda x: (x['is_successful'], x['final_fitness']),
-                           reverse=True)
-
-    successful = [r for r in sorted_results if r['is_successful']]
-    failed = [r for r in sorted_results if not r['is_successful']]
-
-    print(f"\nSuccessful Instances: {len(successful)}/{len(results)}")
-    print(f"Failed Instances:     {len(failed)}/{len(results)}")
-
-    if successful:
-        print("\n" + "-" * 80)
-        print("SUCCESSFUL INSTANCES (sorted by fitness, descending):")
-        print("-" * 80)
-        print(f"{'Rank':<6} {'Instance Name':<35} {'Fitness':<12} {'Cylinders':<12}")
-        print("-" * 80)
-        for i, result in enumerate(successful, 1):
-            print(f"{i:<6} {result['name']:<35} {result['final_fitness']:>10.4f}  "
-                  f"{result['num_cylinders']:>10}")
-
-    if failed:
-        print("\n" + "-" * 80)
-        print("FAILED INSTANCES (sorted by fitness, descending):")
-        print("-" * 80)
-        print(f"{'Rank':<6} {'Instance Name':<35} {'Fitness':<12} {'Cylinders':<12}")
-        print("-" * 80)
-        for i, result in enumerate(failed, 1):
-            print(f"{i:<6} {result['name']:<35} {result['final_fitness']:>10.4f}  "
-                  f"{result['num_cylinders']:>10}")
+    success_rate = sum(r["successful"] for r in results) / len(results)
 
     print("\n" + "=" * 80)
-    print("DETAILED PERFORMANCE METRICS")
-    print("=" * 80)
-    print(f"{'Instance Name':<35} {'Initial':<12} {'Final':<12} {'Improvement':<12} {'Status':<10}")
-    print("-" * 80)
-    for result in sorted_results:
-        status = "SUCCESS" if result['is_successful'] else "FAILED"
-        print(f"{result['name']:<35} {result['initial_fitness']:>10.2f}  "
-              f"{result['final_fitness']:>10.2f}  {result['improvement']:>10.2f}  {status:<10}")
-
-    print("=" * 80)
+    print(f"OVERALL SUCCESS RATE: {success_rate*100:.1f}%")
 
     return {
-        'all_results': sorted_results,
-        'successful': successful,
-        'failed': failed,
-        'success_rate': len(successful) / len(results) if results else 0
+        "results": results,
+        "success_rate": success_rate
     }
 
 def evaluate_and_visualise_sequence(instance, id_sequence, show_visualization=True):
@@ -897,124 +697,68 @@ def evaluate_and_visualise_sequence(instance, id_sequence, show_visualization=Tr
         show_visualization: If True, show the visualization plot
 
     Returns:
-        Dictionary with fitness, positions, and all penalty components
+        Dict as given by evaluate()
     """
+
     # Create a dictionary to map IDs to cylinders
-    cylinder_by_id = {cyl.id: cyl for cyl in instance.cylinders}
+    cyl_map = {c.id: c for c in instance.cylinders}
+    # Create individual with given sequence
+    individual = Individual([cyl_map[i] for i in id_sequence])
 
-    # Create cylinders in the specified sequence order
-    ordered_cylinders = []
-    for cyl_id in id_sequence:
-        if cyl_id in cylinder_by_id:
-            ordered_cylinders.append(cylinder_by_id[cyl_id])
-        else:
-            raise ValueError(f"Cylinder ID {cyl_id} not found in instance")
+    result = individual.evaluate(instance.container)
 
-    # Create an Individual with this sequence
-    individual = Individual(ordered_cylinders)
-
-    # Calculate fitness
-    fitness = individual.calculate_fitness(instance.container)
-
-    # Calculate detailed penalty breakdown
-    penalty_breakdown = individual.calculate_detailed_penalties(instance.container)
-
-    # Print results
-    print("=" * 70)
-    print(f"SEQUENCE EVALUATION - {instance.name}")
-    print("=" * 70)
+    print("\nSEQUENCE EVALUATION")
+    print("-" * 60)
     print(f"Sequence: {id_sequence}")
-    print(f"Total cylinders: {len(id_sequence)}")
-    print(f"Fitness: {fitness:.4f}")
-    print("\nPenalty Breakdown:")
-    print(f"  Overlap penalty:      {penalty_breakdown['overlap']:.4f}")
-    print(f"  Boundary penalty:     {penalty_breakdown['boundary']:.4f}")
-    print(f"  Capacity penalty:     {penalty_breakdown['capacity']:.4f}")
-    print(f"  Centre of Mass penalty: {penalty_breakdown['centre_mass_penalty']:.4f}")
-    print(f"  Loading Order penalty: {penalty_breakdown['order_penalty']:.4f}")
-    print(f"  Centre of Mass reward:  {penalty_breakdown['centre_mass_reward']:.4f}")
-    print(f"  Cylinder Centrality reward:  {penalty_breakdown['cylinder_centre_reward']:.4f}")
-    print(f"  Total penalty:        {penalty_breakdown['total_penalty']:.4f}")
+    print(f"Fitness: {result['fitness']:.2f}")
+    print(f"Successful: {result['is_successful']}")
+    print("Penalties:")
+    for k, v in result["penalties"].items():
+        print(f"  {k}: {v:.4f}")
 
-    # Print placement information
-    print("\nPlacement Details:")
-    print(f"{'ID':<4} {'Diameter':<8} {'Weight':<8} {'X':<8} {'Y':<8}")
-    print("-" * 40)
-    for i, cyl in enumerate(individual.cylinders):
-        if i < len(individual.positions):
-            pos = individual.positions[i]
-            print(f"{cyl.id:<4} {cyl.diameter:<8.2f} {cyl.weight:<8.2f} {pos.x:<8.2f} {pos.y:<8.2f}")
-        else:
-            print(f"{cyl.id:<4} {cyl.diameter:<8.2f} {cyl.weight:<8.2f} {'N/A':<8} {'N/A':<8}")
-
-    # Show centre of mass information
-    if penalty_breakdown['centre_mass'] is not None:
-        cm_x, cm_y = penalty_breakdown['centre_mass']
-        print(f"\ncentre of Mass: ({cm_x:.2f}, {cm_y:.2f})")
-        print(f"Container centre: ({instance.container.width/2:.2f}, {instance.container.depth/2:.2f})")
-        print(f"Distance from centre: {math.sqrt((cm_x - instance.container.width/2)**2 + (cm_y - instance.container.depth/2)**2):.2f}")
-
-    # Total weight check
-    total_weight = sum(cyl.weight for cyl in individual.cylinders)
-    print(f"\nTotal weight: {total_weight:.2f} / {instance.container.max_weight:.2f}")
-    print(f"Weight utilization: {(total_weight/instance.container.max_weight*100):.1f}%")
-
-    # Show visualization
     if show_visualization:
-        individual.draw(instance.container,
-                        title=f"Sequence: {id_sequence[:5]}{'...' if len(id_sequence) > 5 else ''}")
+        individual.draw(instance.container)
 
-    return {
-        'fitness': fitness,
-        'positions': individual.positions.copy() if individual.positions else [],
-        'penalty_breakdown': penalty_breakdown,
-        'individual': individual
-    }
+    return result
 
 def main():
+    # GA parameters
     mutation_rate = 0.04
     population_size = 200
     max_generations = 200
 
-
-    # You can choose to run a single instance with visualation or all instances with a report & visualisations
-    # by commenting and uncommenting the respective options
-
-
+    # Load instances
     basic_instances: List[Instance] = container_instances.create_basic_instances()
     challenging_instances: List[Instance] = container_instances.create_challenging_instances()
 
+
+    # --------------------------------------------------------------------------------------
+    # You may choose 3 methods of running the genetic algorithm by uncommenting
+    # an option and commenting the others.
+    #
+    # For Option 1 & Option 3, choose an instance to evaluate
+    #
+    # Option 2 will run all instances. The GA will only continue to the next instance
+    # once the plot draw() window has been closed
+    #
+    # For Option 3, please also input a sequence/solution you would like to evaluate
+    #
+    # Uncomment an option and execute to run it. (Comment the other options)
+    # ---------------------------------------------------------------------------------------------------
+
+    #! Choose an instance to run for option 1 or option 3
+    instance = basic_instances[2] # Max = 2
+    instance = challenging_instances[3] # Max = 3
+
     # #! Option 1: Run single given instance
-    # # Choose instance
-    # instance = challenging_instances[1]
-    # result = run_single_instance(instance=instance, mutation_rate=mutation_rate, population_size=population_size, max_generations=max_generations, print_interval=20, draw_result=True)
-    # print(f"\nFinal fitness: {result['final_stats']['best']:.4f}")
-    # print(f"Best sequence (cylinder IDs): {result['best_individual'].ids}")
-    # print(f"Best sequence (full details):")
-    # for i, cyl in enumerate(result['best_individual'].cylinders):
-    #     print(f"  Position {i+1}: ID={cyl.id}, Diameter={cyl.diameter}, Weight={cyl.weight}")
-
-
+    # run_single_instance(instance=instance, mutation_rate=mutation_rate, population_size=population_size, max_generations=max_generations, print_interval=20, draw_result=True)
 
     #! Option 2: Run all instances
-    results = run_all_instances( mutation_rate=mutation_rate, population_size=population_size, max_generations=max_generations, verbose=True)
-    print(f"\nOverall Success Rate: {results['success_rate']*100:.1f}%")
-    print("\n" + "=" * 80)
-    print("BEST SEQUENCES FOR ALL INSTANCES")
-    print("=" * 80)
-    for result in results['all_results']:
-        print(f"\n{result['name']} (Fitness: {result['final_fitness']:.4f}):")
-        print(f"  Sequence: {result['best_individual'].ids}")
-        status = "SUCCESS" if result['is_successful'] else "FAILED"
-        print(f"  Status: {status}")
+    run_all_instances( mutation_rate=mutation_rate, population_size=population_size, max_generations=max_generations, verbose=True)
 
-    # #! Option 3: Test specific sequences
-    # # Choose instance
-    # instance = challenging_instances[3]
-    # # Input sequence to test
+    # #! Option 3: Test specific sequence for chosen instance
     # sequence = [6, 2, 1, 8, 5, 7, 10, 4, 9, 3]  # NOTE: Ensure ids used are present in instance
-    # print("\nOption 3: Testing specific sequences")
-    # result = evaluate_and_visualise_sequence(instance, sequence, show_visualization=True)
+    # evaluate_and_visualise_sequence(instance, sequence, show_visualization=True)
 
 if __name__ == "__main__":
     main()
