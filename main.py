@@ -1,3 +1,4 @@
+from re import I
 import container_instances
 from container_instances import Cylinder, Container, Instance
 from typing import List, Dict
@@ -57,11 +58,12 @@ def main():
     # evaluate_and_visualise_sequence(instance, sequence, show_visualization=True)
 
 
+    # #! Option 4: Run GA and flip through top solutions
     # Controls:
         # Right arrow OR l = next
         # Left arrow OR h = previous
         # q: quit
-    # #! Option 4: Run GA and flip through top solutions
+
     flip_best_solutions( instance=instance, mutation_rate=mutation_rate, population_size=population_size, max_generations=max_generations, top_k=5)
 
 
@@ -470,6 +472,86 @@ class Individual:
         plt.tight_layout()
         plt.show()
 
+
+    def draw_dynamic(self, axes, container, title="Cylinder Placement"):
+        """
+        Draw the solution on an existing Matplotlib Axes (no new window).
+
+        Args:
+            axes: axes of plot to be drawn on
+            container: Instance container
+            title: (optional) title of plot
+        """
+
+        if not self.positions:
+            self.calculate_fitness(container)
+
+        axes.clear()
+
+        # Draw container
+        rect = patches.Rectangle(
+            (0, 0),
+            container.width,
+            container.depth,
+            linewidth=2,
+            edgecolor="black",
+            facecolor="none"
+        )
+        axes.add_patch(rect)
+
+        # Draw cylinders
+        radii = [d / 2 for d in self.diameters]
+        for i, (pos, r) in enumerate(zip(self.positions, radii)):
+            circle = patches.Circle(
+                (pos.x, pos.y),
+                r,
+                edgecolor="tab:blue",
+                facecolor="lightblue",
+                alpha=0.7,
+                linewidth=2
+            )
+            axes.add_patch(circle)
+            axes.text(
+                pos.x, pos.y,
+                f"{self.ids[i]}\n{self.weights[i]}kg",
+                ha="center", va="center",
+                fontsize=8, fontweight="bold"
+            )
+
+        # Centre of mass
+        total_weight = sum(self.weights)
+        if total_weight > 0:
+            cm_x = sum(self.weights[i] * self.positions[i].x for i in range(len(self.weights))) / total_weight
+            cm_y = sum(self.weights[i] * self.positions[i].y for i in range(len(self.weights))) / total_weight
+
+            axes.plot(cm_x, cm_y, "rx", markersize=12, markeredgewidth=2)
+
+            safe_zone = patches.Rectangle(
+                (0.2 * container.width, 0.2 * container.depth),
+                0.6 * container.width,
+                0.6 * container.depth,
+                linestyle="--",
+                linewidth=1,
+                edgecolor="green",
+                facecolor="none",
+                alpha=0.5
+            )
+            axes.add_patch(safe_zone)
+
+        seq_str = str(self.ids[:20]) + ("..." if len(self.ids) > 20 else "")
+        axes.set_title(
+            f"{title}\nFitness: {self.fitness:.2f}\nSequence: {seq_str}",
+            fontsize=13,
+            fontweight="bold"
+        )
+
+        axes.set_xlim(0, container.width)
+        axes.set_ylim(0, container.depth)
+        axes.set_aspect("equal")
+        axes.set_xlabel("Width (m)")
+        axes.set_ylabel("Depth (m)")
+        axes.grid(True, alpha=0.3)
+
 class Population:
     def __init__(self, pop_size, cylinders: List[Cylinder], container: Container):
         """
@@ -843,22 +925,24 @@ def flip_best_solutions(instance, mutation_rate=0.04, population_size=200, max_g
 
     # Interactive plotting
     index = 0
-    fig = plt.figure(figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=(8, 6))
+
 
     def draw_current():
-        plt.clf()
-        best_solutions[index].draw(
+        best_solutions[index].draw_dynamic(
+            ax,
             instance.container,
-            title=f"Best Solution {index+1}/{top_k}"
+            title=f"Best Solution {index+1}/{len(best_solutions)}"
         )
+        fig.canvas.draw_idle()
 
     def on_key(event):
         nonlocal index
-        if event.key in ["right", "l"]:
-            index = (index + 1) % top_k
+        if event.key in ["right", "n"]:
+            index = (index + 1) % len(best_solutions)
             draw_current()
-        elif event.key in ["left", "h"]:
-            index = (index - 1) % top_k
+        elif event.key in ["left", "p"]:
+            index = (index - 1) % len(best_solutions)
             draw_current()
         elif event.key == "q":
             plt.close(fig)
@@ -867,6 +951,7 @@ def flip_best_solutions(instance, mutation_rate=0.04, population_size=200, max_g
 
     draw_current()
     plt.show()
+
 
 if __name__ == "__main__":
     main()
