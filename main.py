@@ -1,15 +1,69 @@
 import container_instances
 from container_instances import Cylinder, Container, Instance
+from typing import List, Dict
+import json
 import random
 import math
-from typing import List, Dict
 import numpy as np
-import json
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.patches import Circle as PltCircle
 
-random.seed(42)
+def main():
+    random.seed(42) # For reproducible results
+
+    # GA parameters
+    mutation_rate = 0.04
+    population_size = 200
+    max_generations = 200
+
+    # Load instances
+    basic_instances: List[Instance] = container_instances.create_basic_instances()
+    challenging_instances: List[Instance] = container_instances.create_challenging_instances()
+
+
+    # --------------------------------------------------------------------------------------
+    # You may choose 4 methods of running the genetic algorithm by uncommenting
+    # an option and commenting the others.
+    #
+    # For Option 1 & Option 3, choose an instance to evaluate.
+    #
+    # Option 2 will run all instances. The GA will only continue to the next instance
+    # once the plot draw() window has been closed.
+    #
+    # For Option 3, please also input a sequence/solution you would like to evaluate
+    #
+    # Option 4 allows you to flip through k best solutions for the given instance
+    #
+    # Uncomment an option and execute to run it. (Comment the other options).
+    # GA may take a minute or more for instances with high n cylinders..
+    # ---------------------------------------------------------------------------------------------------
+
+    #! Choose an instance to run for option 1 or option 3
+    # instance = basic_instances[2] # Max = 2
+    instance = challenging_instances[1] # Max = 3
+
+
+    # #! Option 1: Run single given instance
+    # run_single_instance(instance=instance, mutation_rate=mutation_rate, population_size=population_size, max_generations=max_generations, print_interval=20, draw_result=True)
+
+
+    # #! Option 2: Run all instances
+    # run_all_instances( mutation_rate=mutation_rate, population_size=population_size, max_generations=max_generations, verbose=True)
+
+
+    # #! Option 3: Test specific sequence for chosen instance (Not GA)
+    # sequence = [2, 8, 1, 3, 4, 7, 6, 5] # NOTE: Ensure ids used are present in instance
+    # evaluate_and_visualise_sequence(instance, sequence, show_visualization=True)
+
+
+    # Controls:
+        # Right arrow OR l = next
+        # Left arrow OR h = previous
+        # q: quit
+    # #! Option 4: Run GA and flip through top solutions
+    flip_best_solutions( instance=instance, mutation_rate=mutation_rate, population_size=population_size, max_generations=max_generations, top_k=5)
+
 
 class Vector2:
     def __init__(self, x: float, y: float):
@@ -203,6 +257,9 @@ class Individual:
                 "total_weight": float,
                 "centre_of_mass": Vector2,
                 "is_successful": bool,
+
+            penalties: "overlap", "bounds", "capacity", "centre_of_mass", "loading_order"
+            rewards: "centre_mass_reward", "cylinder_centrality":
         """
 
         if not self.positions:
@@ -226,6 +283,7 @@ class Individual:
             "cylinder_centrality": 0.0,
         }
 
+        fpt = 1e-6 # Floating point tolerance
         # Overlap + loading order
         for i in range(n):
             for j in range(i + 1, n):
@@ -237,9 +295,9 @@ class Individual:
                 if dist < min_dist:
                     penalties["overlap"] += (min_dist - dist) ** 2
 
-                # Loading order: later cylinder cannot block earlier one
-                if self.positions[i].y < self.positions[j].y:
-                    if abs(dx) < min_dist:
+                # Loading order: cylinder cannot be placed below a placed cylinder
+                if self.positions[j].y < self.positions[i].y:
+                    if abs(dx) < min_dist + fpt:
                         penalties["loading_order"] += 1.0
 
         # Boundary
@@ -571,8 +629,7 @@ class Population:
 
         return stats
 
-
-def run_single_instance(instance, mutation_rate=0.01, population_size=200, max_generations=500, print_interval=20, draw_result=True):
+def run_single_instance(instance, mutation_rate=0.04, population_size=200, max_generations=200, print_interval=20, draw_result=True):
     """
     Run the GA on a single instance with visualisation.
 
@@ -601,7 +658,8 @@ def run_single_instance(instance, mutation_rate=0.01, population_size=200, max_g
             print(f"[Gen {gen:4d}] "
                     f"Best={stats['best_fitness']:.2f} | "
                     f"Avg={stats['avg_fitness']:.2f} | "
-                    f"Success={stats['success_rate']*100:.1f}%")
+                    f"Worst={stats['worst_fitness']:.2f} | "
+                    f"Success Rate={stats['success_rate']*100:.1f}%")
 
     # Get best solution
     best = population.get_best_individual()
@@ -609,9 +667,11 @@ def run_single_instance(instance, mutation_rate=0.01, population_size=200, max_g
 
     print("\nFINAL RESULT")
     print("-" * 50)
+    print(f"Sequence: {str(best.ids)}")
     print(f"Fitness: {result['fitness']:.2f}")
     print(f"Successful: {result['is_successful']}")
     print(f"Penalties: {result['penalties']}")
+    print(f"Rewards: {result['rewards']}")
 
     # Visualise
     if draw_result:
@@ -619,7 +679,7 @@ def run_single_instance(instance, mutation_rate=0.01, population_size=200, max_g
 
     return result
 
-def run_all_instances(mutation_rate=0.01,population_size=200, max_generations=500, print_interval=50, verbose=True):
+def run_all_instances(mutation_rate=0.04, population_size=200, max_generations=200, print_interval=50, verbose=True):
     """
     Run the GA on all available instances and analyse results.
 
@@ -653,17 +713,23 @@ def run_all_instances(mutation_rate=0.01,population_size=200, max_generations=50
 
             if gen % print_interval == 0:
                 stats = population.get_stats()
-                print(f"Gen {gen:4d}: "
-                        f"Best={stats['best_fitness']:.2f}, "
-                        f"Success={stats['success_rate']*100:.1f}%")
+                print(f"Gen {gen:4d}:\n "
+                        f"  Best={stats['best_fitness']:.2f},\n "
+                        f"  Average={stats['avg_fitness']:.2f},\n "
+                        f"  Worst={stats['worst_fitness']:.2f},\n "
+                        f"  Success Rate={stats['success_rate']*100:.1f}%")
 
         best = population.get_best_individual()
         res = best.evaluate(instance.container)
 
+        # Print stats
         print("\nFINAL")
+        print(f"Sequence: {str(best.ids)}")
         print(f"Fitness: {res['fitness']:.2f}")
         print(f"Successful: {res['is_successful']}")
         print(f"Penalties: {res['penalties']}")
+        print(f"Rewards: {res['rewards']}")
+
 
         results.append({
             "instance": instance.name,
@@ -707,6 +773,7 @@ def evaluate_and_visualise_sequence(instance, id_sequence, show_visualization=Tr
 
     result = individual.evaluate(instance.container)
 
+    # Print stats
     print("\nSEQUENCE EVALUATION")
     print("-" * 60)
     print(f"Sequence: {id_sequence}")
@@ -715,50 +782,91 @@ def evaluate_and_visualise_sequence(instance, id_sequence, show_visualization=Tr
     print("Penalties:")
     for k, v in result["penalties"].items():
         print(f"  {k}: {v:.4f}")
+    print(f"Rewards:")
+    for k, v in result["rewards"].items():
+            print(f"  {k}: {v:.4f}")
 
+    # Draw
     if show_visualization:
         individual.draw(instance.container)
 
     return result
 
-def main():
-    # GA parameters
-    mutation_rate = 0.04
-    population_size = 200
-    max_generations = 200
+def flip_best_solutions(instance, mutation_rate=0.04, population_size=200, max_generations=200, top_k=5):
+    """
+    Run GA, collect top-k best solutions, and flip through their visualisations.
 
-    # Load instances
-    basic_instances: List[Instance] = container_instances.create_basic_instances()
-    challenging_instances: List[Instance] = container_instances.create_challenging_instances()
+    Args:
+        instance: Instance to be ran
+        mutation_rate: (optional) Chance of sequence swapping per gene
+        population_size: (optional) Size of population per generation
+        max_generations: (optional) When to stop GA
+        top_k: (optional) How many best solutions to keep
+    """
 
+    # Run GA
+    population = Population(population_size, instance.cylinders, instance.container)
+    population.evaluate_population()
 
-    # --------------------------------------------------------------------------------------
-    # You may choose 3 methods of running the genetic algorithm by uncommenting
-    # an option and commenting the others.
-    #
-    # For Option 1 & Option 3, choose an instance to evaluate
-    #
-    # Option 2 will run all instances. The GA will only continue to the next instance
-    # once the plot draw() window has been closed
-    #
-    # For Option 3, please also input a sequence/solution you would like to evaluate
-    #
-    # Uncomment an option and execute to run it. (Comment the other options)
-    # ---------------------------------------------------------------------------------------------------
+    for _ in range(max_generations):
+        population.evolve(mutation_rate)
 
-    #! Choose an instance to run for option 1 or option 3
-    instance = basic_instances[2] # Max = 2
-    instance = challenging_instances[3] # Max = 3
+    # Collect best unique solutions
+    sorted_inds = sorted(
+        population.individuals,
+        key=lambda ind: ind.fitness,
+        reverse=True
+    )
 
-    # #! Option 1: Run single given instance
-    # run_single_instance(instance=instance, mutation_rate=mutation_rate, population_size=population_size, max_generations=max_generations, print_interval=20, draw_result=True)
+    best_solutions = []
+    seen_sequences = set()
 
-    #! Option 2: Run all instances
-    run_all_instances( mutation_rate=mutation_rate, population_size=population_size, max_generations=max_generations, verbose=True)
+    for ind in sorted_inds:
+        seq = tuple(ind.ids)   # hashable representation
+        if seq not in seen_sequences:
+            seen_sequences.add(seq)
+            best_solutions.append(ind)
 
-    # #! Option 3: Test specific sequence for chosen instance
-    # sequence = [6, 2, 1, 8, 5, 7, 10, 4, 9, 3]  # NOTE: Ensure ids used are present in instance
-    # evaluate_and_visualise_sequence(instance, sequence, show_visualization=True)
+        if len(best_solutions) == top_k:
+            break
+
+    if len(best_solutions) < top_k:
+        print(
+            f"Warning: only {len(best_solutions)} unique solutions found "
+            f"(requested {top_k})"
+        )
+
+    print("\nTOP SOLUTIONS")
+    print("=" * 50)
+    for i, ind in enumerate(best_solutions):
+        print(f"{i+1}. Fitness={ind.fitness:.2f}, Sequence={ind.ids}")
+
+    # Interactive plotting
+    index = 0
+    fig = plt.figure(figsize=(8, 6))
+
+    def draw_current():
+        plt.clf()
+        best_solutions[index].draw(
+            instance.container,
+            title=f"Best Solution {index+1}/{top_k}"
+        )
+
+    def on_key(event):
+        nonlocal index
+        if event.key in ["right", "l"]:
+            index = (index + 1) % top_k
+            draw_current()
+        elif event.key in ["left", "h"]:
+            index = (index - 1) % top_k
+            draw_current()
+        elif event.key == "q":
+            plt.close(fig)
+
+    fig.canvas.mpl_connect("key_press_event", on_key)
+
+    draw_current()
+    plt.show()
 
 if __name__ == "__main__":
     main()
