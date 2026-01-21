@@ -192,45 +192,6 @@ class Individual:
         # Calculate fitness penalties
         return self.calculate_penalties(radii, container)
 
-    def is_position_feasible(self, pos: Vector2, radius: float, current_idx: int, radii: List[float], container: Container) -> bool:
-        """
-        Check if a position is feasible for the current cylinder.
-        """
-        # Check container boundaries
-        if (pos.x - radius < 0 or pos.x + radius > container.width or
-            pos.y - radius < 0 or pos.y + radius > container.depth):
-            return False
-
-        # Check overlap with already placed cylinders
-        for j in range(current_idx):
-            existing_pos = self.positions[j]
-            existing_radius = radii[j]
-            distance = math.sqrt((pos.x - existing_pos.x)**2 +
-                                (pos.y - existing_pos.y)**2)
-            if distance < (radius + existing_radius - 1e-6):  # Small tolerance for floating point inaccuracy
-                return False
-
-        # Check if violates loading order
-        if self.violates_loading_order(pos, radius, current_idx, radii):
-            return False
-
-        return True
-
-
-    def violates_loading_order(self, pos, radius, current_idx, radii) -> bool:
-        """
-        Returns True if placing at pos violates loading order
-        """
-        for j in range(current_idx):
-            prev_pos = self.positions[j]
-            prev_radius = radii[j]
-
-            # Check x-range overlap
-            if abs(pos.x - prev_pos.x) < (radius + prev_radius):
-                # New cylinder is below an already placed one
-                if pos.y < prev_pos.y - 1e-6:
-                    return True
-        return False
 
     def calculate_penalties(self, radii: List[float], container: Container) -> float:
         """
@@ -841,7 +802,7 @@ def run_all_instances(mutation_rate=0.01,population_size=200, max_generations=50
         best_individual = population.get_best_individual()
 
         # Determine success (fitness >= -0.01 is considered successful - small tolerance for numerical errors)
-        is_successful = final_stats['best'] >= -0.01
+        is_successful: bool = final_stats['best'] >= -0.01
 
         print(f"\n{'=' * 40}")
         print(f"FINAL RESULTS:")
@@ -974,17 +935,6 @@ def evaluate_and_visualise_sequence(instance, id_sequence, show_visualization=Tr
     print(f"  Centre of Mass reward:  {penalty_breakdown['centre_mass_reward']:.4f}")
     print(f"  Cylinder Centrality reward:  {penalty_breakdown['cylinder_centre_reward']:.4f}")
     print(f"  Total penalty:        {penalty_breakdown['total_penalty']:.4f}")
-    # 'overlap': penalty_overlap * 10.0,
-    # 'boundary': penalty_bounds * 5.0,
-    # 'capacity': penalty_capacity * 100.0,
-    # 'centre_mass_penalty': centre_mass_penalty * 2.0,
-    # 'order_penalty': penalty_order * 10.0,
-    # 'centre_mass_reward': centre_mass_reward,
-    # 'cylinder_centre_reward': cylinder_centre_reward,
-    # 'individual_cylinder_rewards': individual_cylinder_rewards,
-    # 'total_penalty': total_penalty,
-    # 'centre_mass': centre_mass,
-    # 'total_weight': total_weight
 
     # Print placement information
     print("\nPlacement Details:")
@@ -1057,8 +1007,6 @@ def main():
         print(f"  Sequence: {result['best_individual'].ids}")
         status = "SUCCESS" if result['is_successful'] else "FAILED"
         print(f"  Status: {status}")
-
-
 
     # #! Option 3: Test specific sequences
     # # Choose instance
