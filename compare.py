@@ -222,11 +222,11 @@ def compare_placement_strategies(instance):
     print(f"PLACEMENT STRATEGY COMPARISON — {instance.name}")
     print("=" * 100)
 
-    random_res = evaluate_random_placement(instance, show_visualisation=False)
+    random_res = evaluate_random_placement(instance, show_visualisation=True)
 
-    greedy_res = evaluate_greedy_placement(instance, show_visualisation=False)
+    greedy_res = evaluate_greedy_placement(instance, show_visualisation=True)
 
-    ga_res = evaluate_ga_solution(instance, show_visualisation=False)
+    ga_res = evaluate_ga_solution(instance, show_visualisation=True)
 
     rows = [
         ("Random", random_res),
